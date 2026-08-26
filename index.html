@@ -737,6 +737,11 @@ let USERS=[
   {id:'c16',nombre:'Josue Aquino',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
   {id:'c17',nombre:'Departamento Compras',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
   {id:'c18',nombre:'Eventual',pin:'',rol:'colaborador',areas:['Áreas Públicas','Servicio A la Carta','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
+  {id:'c19',nombre:'Alejandro Peñaherrera',pin:'',rol:'colaborador',areas:[]},
+  {id:'c20',nombre:'Jeremy Velazco',pin:'',rol:'colaborador',areas:[]},
+  {id:'c21',nombre:'Eliana',pin:'',rol:'colaborador',areas:[]},
+  {id:'c22',nombre:'Katty Leiton',pin:'',rol:'colaborador',areas:[]},
+  {id:'c23',nombre:'Adriana Salazar',pin:'',rol:'colaborador',areas:[]},
 ];
 const ICONS={
   clipboard:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/>',
@@ -875,6 +880,9 @@ function invComputeConsumo(it){ const ini=+it.inicial||0, tp=+it.tp||0, tn=+it.t
   return ini+tp-tn-me-fin; }
 function invFmt(n){ if(n===null||n===undefined||n==="") return "—";
   const v=+n; if(isNaN(v)) return "—"; return (Math.round(v*100)/100).toString(); }
+const INV_SERVICIOS_SUGERIDAS = ["Desayuno","Almuerzo","Cena","Snack/Bar","Evento"];
+function invTotalPax(rec){ return (rec.servicios||[]).reduce((s,x)=>s+(+x.adultos||0)+(+x.ninos||0),0); }
+function invComputePromedio(consumo,pax){ if(consumo===null||consumo===undefined||!pax) return null; return consumo/pax; }
 
 async function invRegistrosDe(codigo){
   const all = await Store.read("Inventario");
@@ -897,7 +905,7 @@ async function invAbrirHoy(codigo, user){
     return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? (+prev.final||0) : 0, tp:0, tn:0, merma:0, final:null};
   });
   const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha:hoy, responsable:"",
-    items, cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
+    items, servicios:[], cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
   await Store.writeOne("Inventario", rec);
   return rec;
 }
@@ -910,6 +918,8 @@ function InventarioCierre({user,toast}){
   const [cargando,setCargando]=useState(true);
   const [q,setQ]=useState("");
   const [guardando,setGuardando]=useState(false);
+  const [servNombre,setServNombre]=useState(INV_SERVICIOS_SUGERIDAS[0]);
+  const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
   useEffect(()=>{ if(!codigo){ setCargando(false); return; }
     setCargando(true);
     invAbrirHoy(codigo,user).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
@@ -920,6 +930,12 @@ function InventarioCierre({user,toast}){
   if(cargando) return <div className="empty">Cargando…</div>;
   if(!rec) return null;
   function setItem(i,patch){ setRec(r=>{ const items=r.items.slice(); items[i]={...items[i],...patch}; return {...r,items}; }); }
+  function agregarServicio(){ const ad=+servAd||0, ni=+servNi||0;
+    if(!ad&&!ni){ toast("Ingresa al menos adultos o niños."); return; }
+    setRec(r=>({...r, servicios:[...(r.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni}]}));
+    setServAd(""); setServNi(""); }
+  function quitarServicio(id){ setRec(r=>({...r, servicios:(r.servicios||[]).filter(s=>s.id!==id)})); }
+  const pax = invTotalPax(rec);
   const filtrados = rec.items.map((it,i)=>({it,i})).filter(({it})=> !q.trim() ||
     (it.nombre+" "+it.codigo).toLowerCase().indexOf(q.trim().toLowerCase())>-1);
   async function guardar(cerrar){
@@ -950,6 +966,24 @@ function InventarioCierre({user,toast}){
       ? <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega. Puedes verlo en la pestaña Historial. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>
       : <Field label="Responsable del conteo" req><input className="inp" value={rec.responsable} placeholder="Nombre de quien cuenta"
           onChange={e=>setRec(r=>({...r,responsable:e.target.value}))}/></Field>}
+    <div className="card" style={{marginBottom:12,padding:"12px 14px"}}>
+      <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
+      <div className="hint" style={{marginBottom:10}}>Adultos y niños atendidos hoy en esta bodega. Se usa para calcular el consumo promedio por persona.</div>
+      {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
+      {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
+        <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
+        <div>{s.adultos} adultos</div><div>{s.ninos} niños</div>
+        {!rec.cerrado && <button className="btn ghost" style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>}
+      </div>)}
+      {!rec.cerrado && <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+        <select className="inp" style={{width:150}} value={servNombre} onChange={e=>setServNombre(e.target.value)}>
+          {INV_SERVICIOS_SUGERIDAS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        <input className="inp" type="number" min="0" placeholder="Adultos" style={{width:90}} value={servAd} onChange={e=>setServAd(e.target.value)}/>
+        <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>
+        <button className="btn ghost" onClick={agregarServicio}>Agregar</button>
+      </div>}
+      <div className="hint" style={{marginTop:10}}>Total PAX hoy: <b style={{color:"var(--ink)"}}>{pax}</b></div>
+    </div>
     <div style={{maxWidth:340,marginBottom:10}}><input type="text" className="inp" placeholder="Buscar producto o código…"
       value={q} onChange={e=>setQ(e.target.value)}/></div>
     <div style={{display:"flex",fontSize:11.5,fontWeight:700,color:"var(--muted)",padding:"0 4px",marginBottom:4}}>
@@ -958,10 +992,11 @@ function InventarioCierre({user,toast}){
       <div style={{width:56,textAlign:"right"}}>Trasl.+</div>
       <div style={{width:56,textAlign:"right"}}>Trasl.−</div>
       <div style={{width:56,textAlign:"right"}}>Merma</div>
-      <div style={{width:64,textAlign:"right"}}>Final</div>
+      <div style={{width:64,textAlign:"right"}}>Cant. final</div>
       <div style={{width:64,textAlign:"right"}}>Consumo</div>
+      <div style={{width:60,textAlign:"right"}}>Promedio</div>
     </div>
-    {filtrados.map(({it,i})=>{ const cons=invComputeConsumo(it);
+    {filtrados.map(({it,i})=>{ const cons=invComputeConsumo(it); const prom=invComputePromedio(cons,pax);
       return <div key={it.codigo} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
         <div style={{flex:"1 1 auto",minWidth:0}}>
           <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}</div>
@@ -984,6 +1019,7 @@ function InventarioCierre({user,toast}){
             value={it.final===null?"":it.final} onChange={e=>setItem(i,{final:e.target.value===""?null:+e.target.value})}/>
         </>}
         <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700,color:"var(--ocean-d)"}}>{invFmt(cons)}</div>
+        <div style={{width:60,textAlign:"right",fontSize:12.5,color:"var(--muted)"}}>{prom===null?"—":invFmt(prom)}</div>
       </div>; })}
     {!filtrados.length && <div className="empty">Ningún producto coincide con la búsqueda.</div>}
     {!rec.cerrado && <div className="row" style={{marginTop:14,gap:10}}>
