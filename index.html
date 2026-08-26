@@ -995,6 +995,37 @@ async function invAplicarLoteTraslados(lote){
   }
   return resumen;
 }
+/* Recibe las filas crudas ya extraídas de los PDF de Zeus (una por línea de
+   traslado; cantidad siempre positiva, con nombres de bodega tal cual salen
+   del PDF) y las convierte en líneas con signo para invAplicarLoteTraslados:
+   bodega DESTINO → (+), bodega ORIGEN → (−). Las bodegas centrales que no se
+   controlan en esta app (Bodega de Alimentos, Bodega Bebidas, etc.) no
+   coinciden con ninguna de las 8 bodegas configuradas → simplemente no se
+   genera esa línea (no es un error). Si NINGÚN lado coincide, la fila entera
+   se reporta como fuera de alcance para que la tarea programada la muestre
+   en su resumen (nunca se adivina una bodega ambigua). */
+function invClasificarTraslado(row){
+  const codDestino = invMatchBodegaZeus(row.bodegaDestino);
+  const codOrigen = invMatchBodegaZeus(row.bodegaOrigen);
+  const lineas = [];
+  if(codDestino) lineas.push({codigoBodega:codDestino, fecha:row.fecha, codigo:row.codigo, nombre:row.nombre,
+    unidad:row.unidad, cantidad:row.cantidad, signo:1, trasladoN:row.trasladoN, origen:row.bodegaOrigen, destino:row.bodegaDestino});
+  if(codOrigen) lineas.push({codigoBodega:codOrigen, fecha:row.fecha, codigo:row.codigo, nombre:row.nombre,
+    unidad:row.unidad, cantidad:row.cantidad, signo:-1, trasladoN:row.trasladoN, origen:row.bodegaOrigen, destino:row.bodegaDestino});
+  return {lineas, fueraDeAlcance: !codDestino && !codOrigen};
+}
+async function invAplicarLoteZeus(rows){
+  const lote = [], sinMatch = [];
+  for(const row of rows){
+    if(!row.codigo){ sinMatch.push({...row, motivo:"sin código de producto (se ignora — nunca se registra por nombre)"}); continue; }
+    const {lineas, fueraDeAlcance} = invClasificarTraslado(row);
+    if(fueraDeAlcance){ sinMatch.push({...row, motivo:`ninguna bodega A&B coincide (origen: "${row.bodegaOrigen}", destino: "${row.bodegaDestino}")`}); continue; }
+    lote.push(...lineas);
+  }
+  const resumen = await invAplicarLoteTraslados(lote);
+  resumen.sinMatch = sinMatch;
+  return resumen;
+}
 
 /* ===== Pantalla: Cierre del día =====
    modo "completo": vista de siempre (Gerencia/Desarrollador) — todas las
