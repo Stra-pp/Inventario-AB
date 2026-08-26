@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0d6e75" />
+<title>Inventario A&amp;B · Playa Paraíso (prueba)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js" onerror="window.__noMsal=true"></script>
+<script>if(typeof msal==="undefined"){var _m=document.createElement("script");_m.src="https://alcdn.msftauth.net/browser/2.38.0/js/msal-browser.min.js";document.head.appendChild(_m);}</script>
+<style>
+<style>
+:root{
+  --ocean:#0d6e75; --ocean-d:#0a565c; --ocean-l:#e6f2f3;
+  --sand:#f7f4ee; --surface:#ffffff; --line:#e7e2d8;
+  --ink:#1f2a2c; --muted:#6c7a7c;
+  --coral:#e8663d; --coral-d:#cf5530;
+  --green:#1f9d6b; --amber:#e0a32e; --red:#d34c4c; --blue:#3a78c2; --gray:#9aa6a7; --purple:#7e57c2;
+  --shadow:0 1px 2px rgba(16,40,42,.06),0 8px 24px rgba(16,40,42,.08);
+  --r:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--sand);color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font-family:inherit;font-size:16px}
+.app{max-width:920px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:30;background:var(--ocean);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;padding-top:max(14px,env(safe-area-inset-top))}
+.topbar .brand{font-weight:800;letter-spacing:.2px;font-size:18px;display:flex;align-items:center;gap:9px}
+.topbar .logobox{background:#fff;border-radius:9px;padding:5px 11px;display:inline-flex;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.topbar .logobox img{height:26px;display:block}
+.loginlogo{display:flex;justify-content:center;margin:2px 0 14px}
+.loginlogo img{height:62px;max-width:80%;object-fit:contain}
+.topbar .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 4px rgba(232,102,61,.25)}
+.topbar .sp{flex:1}
+.topbar .who{font-size:13px;opacity:.95;text-align:right;line-height:1.2}
+.iconbtn{color:#fff;background:rgba(255,255,255,.14);width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:18px}
+.iconbtn:active{transform:scale(.96)}
+.content{flex:1;padding:16px;padding-bottom:46px}
+.backrow{display:flex;align-items:center;gap:10px;margin:-4px 0 14px}
+.backbtn{background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 14px;font-weight:600;color:var(--ink);box-shadow:var(--shadow)}
+.h1{font-size:22px;font-weight:800;margin:0}
+.sub{color:var(--muted);font-size:14px;margin:2px 0 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(min-width:620px){.grid{grid-template-columns:1fr 1fr 1fr}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 16px;box-shadow:var(--shadow);text-align:left;display:flex;flex-direction:column;gap:10px;min-height:128px;transition:transform .08s}
+.tile:active{transform:translateY(1px) scale(.995)}
+.tile .ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:24px;color:#fff}
+.tile .t{font-weight:700;font-size:16px}
+.tile .d{color:var(--muted);font-size:12.5px;line-height:1.35}
+.tile .badge{align-self:flex-start;background:var(--ocean-l);color:var(--ocean-d);font-weight:700;font-size:12px;border-radius:999px;padding:3px 10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 4px;font-size:16px}
+.field{margin-bottom:13px}
+.field label{display:block;font-weight:600;font-size:13.5px;margin-bottom:6px}
+.field .req{color:var(--coral)}
+.inp,select.inp,textarea.inp{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 13px;background:#fff;color:var(--ink)}
+.inp:focus,textarea.inp:focus,select.inp:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0 3px var(--ocean-l)}
+textarea.inp{min-height:88px;resize:vertical}
+.hint{color:var(--muted);font-size:12px;margin-top:5px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:700;border-radius:13px;padding:13px 18px;font-size:15px}
+.btn.primary{background:var(--coral);color:#fff}
+.btn.primary:active{background:var(--coral-d)}
+.btn.ocean{background:var(--ocean);color:#fff}
+.btn.ocean:active{background:var(--ocean-d)}
+.btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+.btn.green{background:var(--green);color:#fff}
+.btn.amber{background:var(--amber);color:#fff}
+.btn.red{background:var(--red);color:#fff}
+.btn.block{width:100%}
+.btn:disabled{opacity:.5}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row.end{justify-content:flex-end}
+.pill{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:11.5px;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.pill .pdot{width:7px;height:7px;border-radius:50%}
+.item{background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 14px;box-shadow:var(--shadow);margin-bottom:11px}
+.item .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.item .code{font-size:11.5px;color:var(--muted);font-weight:700;letter-spacing:.4px}
+.item .ttl{font-weight:700;font-size:15px;margin:3px 0 2px;line-height:1.3}
+.item .meta{font-size:12.5px;color:var(--muted)}
+.item .acts{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+.empty{text-align:center;color:var(--muted);padding:46px 16px}
+.empty .e{font-size:40px}
+.seg{display:flex;background:#eee9df;border-radius:13px;padding:4px;gap:4px;margin-bottom:14px;overflow:auto}
+.seg button{flex:1;white-space:nowrap;border-radius:10px;padding:9px 12px;font-weight:700;font-size:13.5px;color:var(--muted)}
+.seg button.on{background:#fff;color:var(--ocean-d);box-shadow:var(--shadow)}
+/* checklist ILD */
+.crow{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff;cursor:pointer}
+.crow.on{border-color:var(--green);background:#f1faf5}
+.cbox{width:26px;height:26px;border-radius:8px;border:2px solid #cdd5d4;display:grid;place-items:center;color:#fff;font-weight:800;flex:0 0 auto}
+.crow.on .cbox{background:var(--green);border-color:var(--green)}
+.ctext{font-size:14px;font-weight:500}
+.qcard{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff}
+.qcard .qt{font-weight:600;font-size:13.5px;margin-bottom:9px}
+.opts{display:flex;gap:8px;flex-wrap:wrap}
+.opt{flex:1;min-width:84px;text-align:center;border:2px solid var(--line);border-radius:10px;padding:9px 8px;font-weight:700;font-size:13px;color:var(--muted)}
+.opt.on{border-color:var(--ocean);background:var(--ocean-l);color:var(--ocean-d)}
+.opt.si.on{border-color:var(--green);background:#e9f7f0;color:var(--green)}
+.opt.no.on{border-color:var(--red);background:#fdeeee;color:var(--red)}
+.pbar{height:8px;background:#e8e2d6;border-radius:6px;overflow:hidden;margin:8px 0 14px}
+.pbar i{display:block;height:100%;background:var(--ocean);transition:width .25s}
+.fgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.fthumb{position:relative;width:74px;height:74px;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.fthumb img{width:100%;height:100%;object-fit:cover}
+.fdel{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px}
+.fnum{position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.55);color:#fff;border-radius:6px;font-size:10px;padding:0 5px}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:7px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:none}
+.kv b{color:var(--muted);font-weight:600}
+.note{border-radius:12px;padding:12px 13px;margin:10px 0;font-size:13.5px}
+.note.obs{background:#fff8e1;border:1px solid #ffe0a3}
+.note.jef{background:#f3eafc;border:1px solid #d9c2f0}
+.note.ger{background:#e9f7f0;border:1px solid #aedcc6}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:560px){.kpis{grid-template-columns:repeat(5,1fr)}}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center;box-shadow:var(--shadow)}
+.kpi .kn{font-size:22px;font-weight:800}
+.kpi .kl{font-size:11px;color:var(--muted);margin-top:2px}
+.barline{margin-bottom:11px}
+.barline .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px}
+.barwrap{display:flex;height:10px;border-radius:6px;overflow:hidden;background:#eee7da}
+.stars{display:flex;gap:4px;font-size:24px}
+.stars span{cursor:pointer;color:#d8d2c5}
+.stars span.on{color:var(--amber)}
+.kan{display:flex;gap:12px;overflow-x:auto;padding-bottom:10px}
+.kcol{flex:0 0 80%;max-width:300px;background:#efe9de;border-radius:16px;padding:11px}
+@media(min-width:760px){.kcol{flex:0 0 250px}}
+.kcol h4{margin:2px 4px 10px;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}
+.kcol h4 .cnt{background:#fff;border-radius:999px;font-size:12px;padding:1px 9px;color:var(--muted)}
+.kcard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px;margin-bottom:9px;box-shadow:var(--shadow)}
+.kcol.over{outline:2px dashed var(--ocean);outline-offset:-4px}
+.kchip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 8px;background:#eef3f6;color:#3c5b66}
+.kchip.urg{background:#fbe6e6;color:#a83232}
+.kcol h4 .dotc{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;vertical-align:middle}
+.kfilters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.kfilters select{flex:1;min-width:150px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:#fff;font-size:14px}
+.kcount{font-size:12px;color:var(--muted);margin:-4px 0 12px}
+.dgrp{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
+.dgrp .ghead{background:var(--ocean);color:#fff;font-weight:800;font-size:13px;letter-spacing:.4px;padding:11px 14px;display:flex;align-items:center;gap:8px}
+.dscroll{overflow-x:auto}
+.dtable{width:100%;border-collapse:collapse;min-width:560px}
+.dtable th{background:#f6f2ea;color:var(--muted);font-size:10.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;padding:9px 8px;text-align:center;white-space:nowrap}
+.dtable th:first-child{text-align:left;padding-left:14px}
+.dtable td{padding:11px 8px;text-align:center;border-top:1px solid #f0ebe1;font-size:13.5px;white-space:nowrap}
+.dtable td:first-child{text-align:left;padding-left:14px;font-weight:700}
+.dnum{display:inline-block;min-width:34px;border:1px solid var(--line);border-radius:9px;padding:3px 6px;font-weight:700;background:#fff}
+.dnum.g{color:var(--green);border-color:#bfe6d3}
+.dnum.p{color:var(--purple);border-color:#ddccf0}
+.dcirc{display:inline-grid;place-items:center;width:42px;height:42px;border-radius:50%;font-weight:800;font-size:12px;border:2.5px solid}
+.ddias{font-size:11px;color:var(--muted)}
+.dild{font-weight:800;font-size:13.5px;color:var(--ink);line-height:1.25}
+.dtable td:first-child .dsub{font-weight:700;text-transform:uppercase;letter-spacing:.3px;font-size:10.5px;margin-top:2px;color:var(--muted)}
+.dtable td:first-child .dmix{font-size:10.5px;margin-top:2px;color:var(--muted);font-weight:600}
+.apitem{display:grid;grid-template-columns:1fr 90px 40px;grid-template-areas:"n b c" "m m m";align-items:center;gap:8px;padding:7px 0;border-top:1px solid #f4f0e7}
+.apitem:first-child{border-top:0}
+.apname{grid-area:n;font-size:12.5px;font-weight:700}
+.apbar{grid-area:b;height:7px;border-radius:6px;background:#efe9de;overflow:hidden}
+.apbar span{display:block;height:100%;border-radius:6px}
+.apnum{grid-area:c;text-align:right;font-size:13px}
+.apmeta{grid-area:m;font-size:10.5px;color:var(--muted);margin-top:-2px}
+.kcard .kc{font-size:11px;color:var(--muted);font-weight:700}
+.kcard .kt{font-weight:600;font-size:13.5px;margin:3px 0;line-height:1.3}
+.kcard .km{font-size:11.5px;color:var(--muted)}
+.kcard select{margin-top:8px;width:100%;border:1px solid var(--line);border-radius:9px;padding:7px;font-size:12.5px}
+.ovl{position:fixed;inset:0;background:rgba(16,30,32,.5);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:620px){.ovl{align-items:center;padding:20px}}
+.modal{background:#fff;width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:18px;max-height:92vh;overflow:auto}
+@media(min-width:620px){.modal{border-radius:20px}}
+.modal h3{margin:0 0 12px;font-size:18px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:13px;font-weight:600;font-size:14px;z-index:80;box-shadow:var(--shadow);max-width:90%;text-align:center}
+.banner{background:#fff7e8;border:1px solid #f0d9a0;color:#8a6512;border-radius:12px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;display:flex;gap:8px;align-items:flex-start}
+.ver{font-size:11px;color:var(--muted);text-align:center;padding:18px 0 8px}
+.fotomodal{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:90;display:flex;align-items:center;justify-content:center;padding:16px}
+.fotomodal img{max-width:96vw;max-height:90vh;border-radius:10px;object-fit:contain}
+.fotomodal .x{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.2);color:#fff;border-radius:50%;width:42px;height:42px;font-size:20px}
+/* ===== LOGIN (rediseñado) ===== */
+.login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;position:relative;overflow:hidden;
+  background:radial-gradient(120% 80% at 50% -10%, #14808a 0%, var(--ocean) 42%, var(--ocean-d) 78%, #073e43 100%)}
+.login .sun{position:absolute;top:-90px;left:50%;transform:translateX(-50%);width:260px;height:260px;border-radius:50%;
+  background:radial-gradient(circle, rgba(255,196,140,.45) 0%, rgba(232,102,61,.12) 55%, transparent 70%);pointer-events:none}
+.login .wave{position:absolute;bottom:0;left:0;right:0;height:120px;background:
+  radial-gradient(120% 100% at 50% 120%, rgba(255,255,255,.10), transparent 60%);pointer-events:none}
+.lcard{position:relative;z-index:2;background:rgba(255,255,255,.97);border-radius:24px;padding:26px 22px;width:100%;max-width:380px;
+  box-shadow:0 24px 60px rgba(0,0,0,.28);text-align:center}
+.lbrand{display:flex;align-items:center;justify-content:center;gap:10px;font-size:22px;font-weight:800;color:var(--ocean-d)}
+.lbrand .dot{width:12px;height:12px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 5px rgba(232,102,61,.18)}
+.ltag{color:var(--muted);font-size:13px;margin:4px 0 20px}
+.lchoice{display:flex;flex-direction:column;gap:11px}
+.lbig{display:flex;align-items:center;gap:13px;text-align:left;border:1.5px solid var(--line);border-radius:15px;padding:15px;background:#fff;transition:.12s}
+.lbig:active{transform:scale(.99)}
+.lbig.pri{border-color:var(--ocean);background:var(--ocean-l)}
+.lbig .e{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;color:#fff;flex:0 0 auto}
+.lbig .tt{font-weight:700;font-size:15px;color:var(--ink)}
+.lbig .dd{font-size:12px;color:var(--muted);margin-top:1px}
+.lsel{width:100%;border:1.5px solid var(--line);border-radius:13px;padding:13px;font-size:15px;background:#fff;margin-bottom:14px}
+.ldots{display:flex;gap:13px;justify-content:center;margin:4px 0 18px;height:16px}
+.ldots i{width:14px;height:14px;border-radius:50%;background:#e2ddd2;transition:.15s}
+.ldots i.f{background:var(--coral);transform:scale(1.05)}
+.lpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.lpad button{height:58px;border-radius:14px;background:#f3efe6;color:var(--ink);font-size:22px;font-weight:600;border:1px solid var(--line)}
+.lpad button:active{background:var(--ocean-l)}
+.lpad button.fn{font-size:14px;font-weight:700;color:var(--muted);background:#fff}
+.lback{margin-top:16px;color:var(--ocean-d);font-weight:700;font-size:14px;background:none}
+.lerr{color:var(--red);font-weight:600;font-size:13px;min-height:18px;margin-top:8px}
+.lfoot{position:relative;z-index:2;color:rgba(255,255,255,.8);font-size:11px;margin-top:18px}
+
+/* ===== Pulido visual (Fase 1) ===== */
+svg{display:inline-block;vertical-align:middle}
+.h1{letter-spacing:-.3px}
+.tile{transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease}
+.tile .ico{transition:transform .12s ease}
+.card{transition:box-shadow .14s ease}
+.item{transition:box-shadow .12s ease, transform .08s ease}
+.iconbtn{transition:background .12s ease, transform .06s ease}
+.btn{transition:filter .12s ease, background .12s ease, transform .06s ease}
+.btn:active{transform:translateY(1px)}
+@media(hover:hover){
+  .tile:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(16,40,42,.15);border-color:#d8d2c5}
+  .tile:hover .ico{transform:scale(1.06)}
+  .item:hover{box-shadow:0 8px 22px rgba(16,40,42,.11)}
+  .btn.primary:hover,.btn.ocean:hover,.btn.green:hover,.btn.amber:hover,.btn.red:hover{filter:brightness(1.05)}
+  .btn.ghost:hover,.backbtn:hover{background:#faf8f3;border-color:#d8d2c5}
+  .iconbtn:hover{background:rgba(255,255,255,.24)}
+  .lbig:hover{border-color:var(--ocean);box-shadow:0 6px 18px rgba(13,110,117,.10)}
+  .seg button:not(.on):hover{color:var(--ocean-d)}
+}
+
+/* ===== Navegación inferior (Fase 2) ===== */
+.content{padding-bottom:86px}
+.bnav{position:fixed;left:0;right:0;bottom:0;margin:0 auto;max-width:920px;z-index:40;
+  display:flex;gap:2px;background:rgba(255,255,255,.97);border-top:1px solid var(--line);
+  padding:6px 6px max(6px,env(safe-area-inset-bottom));box-shadow:0 -4px 18px rgba(16,40,42,.07)}
+@supports((-webkit-backdrop-filter:blur(8px)) or (backdrop-filter:blur(8px))){
+  .bnav{background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}}
+.bnav button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:7px 2px;border-radius:12px;color:var(--muted);font-weight:700;font-size:10.5px;line-height:1;transition:color .12s,background .12s}
+.bnav button .bic{position:relative;display:grid;place-items:center;height:22px}
+.bnav button .bl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bnav button.on{color:var(--ocean-d);background:var(--ocean-l)}
+.bnav button:active{transform:scale(.93)}
+.bbadge{position:absolute;top:-3px;right:-6px;width:8px;height:8px;border-radius:50%;background:var(--coral);border:1.5px solid #fff}
+@media(hover:hover){.bnav button:not(.on):hover{color:var(--ocean-d);background:#f3efe6}}
+</style>
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useMemo,useRef} = React;
+
+const APP = {
+  version: "Inventario A&B · Playa Paraíso · versión independiente de prueba",
+  versionShort: "Inventario A&B (prueba)",
+  useGraph: true,
+  ms: {
+    clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
+    tenantId: "36db945a-4d81-4bf8-ae41-c98438dc888c",
+    redirectUri: window.location.origin + window.location.pathname,
+    site: "https://playaparaiso.sharepoint.com/sites/Prueba7",
+    siteHost: "playaparaiso.sharepoint.com",
+    sitePath: "/sites/Prueba7",
+    lists: { Inventario:"PP_Inventario" },
+    base: "INVENTARIO",
+    driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
+    files: { Inventario_Config:"NEXO_Inventario_Config.json" },
+    fotosFolder: "Fotos"
+  },
+};
+
+const TZ_EC="America/Guayaquil";
+const nowISO = () => new Date().toISOString();
+function hoyEC(){ try{ return new Date().toLocaleDateString("en-CA",{timeZone:TZ_EC}); }catch(e){ return new Date(Date.now()-5*3600000).toISOString().slice(0,10); } }
+/* ===== v6.8 · Todas las fechas en hora de Ecuador (UTC-5) =====
+   Los registros se guardan en UTC (nowISO). Cortar ese ISO a 10 caracteres
+   devuelve el día UTC, así que todo lo enviado después de las 19:00 de Ecuador
+   aparecía como del día siguiente: por eso algunos ILD y tickets caían en el
+   día equivocado. ymdEC() es el único camino permitido para responder
+   "¿de qué día calendario es esto?" y hoyEC() para "¿qué día es hoy?". */
+function ymdEC(v){
+  if(v==null || v==="") return "";
+  const s=String(v).trim();
+  /* Una fecha sin hora (input type=date, FechaTentativa, FechaSolicitud) ya es
+     un día de calendario: convertirla otra vez la correría un día. */
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d=new Date(s);
+  if(isNaN(d)) return s.slice(0,10);
+  try{ return d.toLocaleDateString("en-CA",{timeZone:TZ_EC}); }
+  catch(e){ return new Date(d.getTime()-5*3600000).toISOString().slice(0,10); }
+}
+/* Hoy en Ecuador, descompuesto. Reemplaza a new Date() cuando lo que se busca
+   es el año, el mes o el día actual (los selectores de mes, los días esperados). */
+function hoyPartesEC(){ const p=hoyEC().split("-").map(Number); return {y:p[0],m:p[1]-1,d:p[2]}; }
+function hoyDateEC(){ const p=hoyPartesEC(); return new Date(p.y,p.m,p.d); }
+const anioEC = v => Number(ymdEC(v).slice(0,4));
+const mesEC  = v => Number(ymdEC(v).slice(5,7))-1;
+/* Suma días a un "YYYY-MM-DD" sin salirse del calendario. */
+function sumaDiasYMD(ymd,n){ const p=String(ymd).split("-").map(Number);
+  const d=new Date(p[0],p[1]-1,p[2]+n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+const fmtDate = s => { if(!s) return "—"; const str=String(s);
+  if(/^\d{4}-\d{2}-\d{2}/.test(str)){ const p=str.slice(0,10).split("-"); const d=new Date(+p[0],+p[1]-1,+p[2]);
+    if(isNaN(d)) return str; return d.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}); }
+  const d=new Date(str); if(isNaN(d)) return str;
+  return d.toLocaleDateString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",year:"numeric"}); };
+const fmtDT = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
+  return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
+/* Para exportar a Excel: los campos "Fecha..." mezclan dos formas (una fecha
+   pura de un input type=date, ej. "2026-08-11", y una fecha con hora de
+   nowISO(), ej. "2026-08-11T19:32:00.000Z"). Antes se exportaba el valor
+   crudo tal cual: una columna salía en UTC (hora corrida respecto a Ecuador)
+   y otra como texto ISO sin formato — cada fecha se veía "diferente". Esta
+   función homologa: fecha pura → solo día (sin forzar zona horaria, para no
+   correrla un día), fecha con hora → día+hora en horario de Ecuador. */
+function fmtCampoExport(v){
+  if(v==null || v==="") return "";
+  const s=String(v);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
+  const d=new Date(s);
+  if(isNaN(d)) return s;
+  return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+/* Aplica fmtCampoExport a toda columna cuyo nombre contenga "Fecha", para
+   Compras/Sistemas/Mantenimiento (ILD ya tiene su propio ildToRow). */
+function formatFechasExport(rows){
+  return (rows||[]).map(r=>{ const o={...r};
+    Object.keys(o).forEach(k=>{ if(/Fecha/.test(k)) o[k]=fmtCampoExport(o[k]); });
+    return o; });
+}
+const yr = () => hoyPartesEC().y;
+let _seq = Date.now()%100000;
+/* Identificador único, en texto.
+   El esquema original (Date.now()%100000 y sumar 1) repetía la semilla cada 100
+   segundos: dos equipos que abrían la app con esa diferencia generaban los mismos
+   ids, y uno terminaba sobrescribiendo los registros del otro sin aviso.
+   Un número tampoco alcanza: por encima de 2^53 se pierde precisión, así que solo
+   quedan 3 dígitos libres por milisegundo (1000 valores) y en ráfaga colisiona.
+   Con texto se combinan tres cosas y la unicidad queda garantizada:
+     - el milisegundo
+     - 4 caracteres al azar, fijos por dispositivo y sesión
+     - un contador que avanza dentro del mismo milisegundo
+   Se usa solo [a-z0-9] para que también sirva como nombre de carpeta. */
+const _gidDev = Math.random().toString(36).slice(2,6).padEnd(4,"0");
+let _gidT = 0, _gidN = 0;
+const gid = () => {
+  const t = Date.now();
+  if(t === _gidT) _gidN++; else { _gidT = t; _gidN = 0; }
+  return t.toString(36) + _gidDev + _gidN.toString(36);
+};
+const itemText = it => (typeof it==='object'&&it!==null)?it.t:it;
+const itemTipo = it => (typeof it==='object'&&it!==null&&it.tipo)?it.tipo:'foto';
+const fotosReq = area => (CL[area]||[]).filter(it=>itemTipo(it)==='foto').length;
+
+function comprimirImg(dataUrl,maxPx=900,q=0.75){
+  return new Promise(res=>{ const img=new Image();
+    img.onload=()=>{ let w=img.width,h=img.height;
+      if(w>maxPx||h>maxPx){const s=Math.min(maxPx/w,maxPx/h);w=Math.round(w*s);h=Math.round(h*s);}
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',q)); };
+    img.onerror=()=>res(dataUrl); img.src=dataUrl; });
+}
+
+const cerrados=["Concluido","Cerrado","Entregado","Cerrada","Rechazada","Rechazado","Baja por presupuesto"];
+const NUEVO_ST=["Solicitado","Nuevo"];
+const bucketEstado=e=>NUEVO_ST.includes(e)?"nuevas":(cerrados.includes(e)?"concluidas":"proceso");
+const fechaBase=r=>r.FechaSolicitud||r.FechaCreacion||r.fecha;
+const diasEnEstado=r=>Math.floor((Date.now()-new Date(fechaBase(r)))/86400000);
+function isOverdue(it){ if(!it.FechaTentativa||cerrados.includes(it.Estado)) return false;
+  return String(it.FechaTentativa).slice(0,10) < hoyEC(); }
+
+const DEPTS = ["Seguridad","Mantenimiento","Recepción","Ama de Llaves","Alimentos y Bebidas","Enfermería","Administración","Cocina General","Operaciones","Ventas","Experiencia al cliente","Gerencia General"];
+const DEPTS_SIS = ["Seguridad","Mantenimiento","Recepción","Ama de Llaves","Cocina","Servicio","Gerencia General","Experiencia al cliente","Ventas","Operaciones","Administración"];
+const UNIDADES = ["Unidades","Litros","Metros","Kilogramos","Metro cuadrado","NA"];
+const TIEMPO_COMPRA = ["Urgente (máximo 7 días)","Media (máximo 15 días)","Plan de inversión (mensual)"];
+const TIPO_COMPRA = ["Bien (incluye insumos)","Servicio","Asesoría"];
+const URGENCIA_SIS = ["Alta (interrumpe actividades críticas)","Media (afecta actividades, pero se puede trabajar)","Baja (no afecta significativamente el trabajo)"];
+
+const STATUS = {
+  "Solicitado":{c:"--gray"},"En Gerencia":{c:"--amber"},"En compra":{c:"--blue"},
+  "Listo para entregar":{c:"--blue"},"Entregado":{c:"--green"},"Cerrada":{c:"--green"},"Rechazada":{c:"--red"},"Baja por presupuesto":{c:"--red"},
+  "Nuevo":{c:"--gray"},"Sin fecha asignada":{c:"--amber"},"En proceso":{c:"--blue"},
+  "Concluido":{c:"--green"},"Cerrado":{c:"--green"},"Rechazado":{c:"--red"}
+};
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const CERRADAS=["Cerrada","Cerrado","Rechazada","Rechazado","Baja por presupuesto"];
+const esCerrada=r=>CERRADAS.includes(r.Estado||r.estado);
+const colorOf = e => cssVar((STATUS[e]||{c:"--gray"}).c);
+const KANBAN = {
+  compras:["Solicitado","En Gerencia","En compra","Listo para entregar","Entregado","Cerrada","Rechazada","Baja por presupuesto"],
+  sistemas:["Nuevo","En proceso","Concluido","Cerrado","Rechazado"],
+  mantenimiento:["Nuevo","Sin fecha asignada","En proceso","Concluido","Cerrado","Rechazado"]
+};
+const ALL_ESTADOS = { Sistemas:KANBAN.sistemas, Mantenimiento:KANBAN.mantenimiento };
+
+/* ===== CAPA DE DATOS: read/write arreglo completo por "tabla" ===== */
+let msalApp=null, graphToken=null, graphUser="";
+let MODE = localStorage.getItem("pp_mode") || (APP.useGraph ? "graph" : "local");
+const Local = {
+  read:t=>{ try{return JSON.parse(localStorage.getItem("pp_"+t)||"[]")}catch{return[]} },
+  write:(t,arr)=>localStorage.setItem("pp_"+t,JSON.stringify(arr))
+};
+const GBASE="https://graph.microsoft.com/v1.0";
+/* Token de Graph: se renueva solo. Antes se pedía una sola vez al abrir la app y,
+   si la tablet quedaba encendida varias horas, el token vencía a media jornada.
+   La app seguía marcando "En línea" (eso solo mira la red del wifi) pero cada
+   envío fallaba con 401 y quedaba en la cola local sin que nadie se enterara
+   por qué. Ahora gfetch detecta el 401, renueva el token solo y reintenta. */
+let SESSION_EXPIRED=false;
+async function refreshToken(){
+  try{ await msInitApp(); const accs=msalApp.getAllAccounts(); if(!accs.length){ SESSION_EXPIRED=true; return false; }
+    const r=await msalApp.acquireTokenSilent({scopes:MS_SCOPES,account:accs[0]});
+    graphToken=r.accessToken; SESSION_EXPIRED=false; return true;
+  }catch(e){ SESSION_EXPIRED=true; return false; }
+}
+/* Antes cada pantalla hacía "setRows(await Store.read(...))" sin try/catch: un
+   401 por token vencido dejaba la lista vacía en silencio (pantallas "en blanco"
+   como el caso de Mantenimiento/Mis tareas). Este helper reintenta una vez tras
+   renovar el token y, si de verdad no hay forma de traer los datos, avisa en vez
+   de quedarse callado. Se usa en todas las pantallas que cargan listas. */
+async function cargarConReintento(leer, setter, toastFn, nombre){
+  try{ setter(await leer()); return true; }
+  catch(e){
+    const ok = MODE==="graph" ? await refreshToken() : false;
+    if(ok){ try{ setter(await leer()); return true; }catch(e2){} }
+    if(toastFn) toastFn(`No se pudo cargar ${nombre||"la información"}. Toca "Reconectar Microsoft" arriba y vuelve a intentar. (${(e&&e.message)||e})`);
+    return false;
+  }
+}
+async function gfetch(path,method="GET",body=null,raw=false,headers=null,_retry){
+  const h={Authorization:`Bearer ${graphToken}`};
+  if(headers) Object.assign(h,headers);
+  if(body && !(body instanceof ArrayBuffer)) h["Content-Type"]="application/json";
+  else if(body instanceof ArrayBuffer) h["Content-Type"]="application/octet-stream";
+  const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),30000);
+  let r; try{ r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null,signal:ctrl.signal}); }
+  catch(e){ clearTimeout(to); throw new Error("conexión: "+(e.name==="AbortError"?"tiempo de espera agotado":e.message)); }
+  clearTimeout(to);
+  if(r.status===204){ SESSION_EXPIRED=false; return null; }
+  if(r.status===401 && !_retry){ const ok=await refreshToken(); if(ok) return gfetch(path,method,body,raw,headers,true); }
+  if(!r.ok){ let extra=""; try{ const j=await r.json(); extra=j.error&&j.error.message?(" — "+j.error.message):""; }catch{} throw new Error(method+" "+path.split("?")[0]+": "+r.status+extra); }
+  SESSION_EXPIRED=false;
+  return raw?r.arrayBuffer():r.json();
+}
+const GraphStore = {
+  fileName:t=>`${APP.ms.base}/${APP.ms.files[t]}`,
+  async read(t){ try{
+      const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"GET",null,true);
+      return JSON.parse(new TextDecoder().decode(buf)); }catch{ return []; } },
+  async write(t,arr){
+    const buf=new TextEncoder().encode(JSON.stringify(arr));
+    await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
+  async ensureCarpeta(carpetaId){ const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
+    try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}`); }
+    catch{ try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}:/children`,"POST",{name:carpetaId,folder:{},"@microsoft.graph.conflictBehavior":"replace"}); }catch(e){} } },
+  async putFoto(dataUrl,nombre,carpetaId){ const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
+    const blob=await (await fetch(dataUrl)).arrayBuffer();
+    await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}/${nombre}:/content`,"PUT",blob);
+    return {nombre,path:`${folder}/${carpetaId}/${nombre}`}; },
+  async uploadFoto(dataUrl,nombre,carpetaId){ await this.ensureCarpeta(carpetaId); return this.putFoto(dataUrl,nombre,carpetaId); },
+  async getImg(path){
+    const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${path}:/content`,"GET",null,true);
+    return URL.createObjectURL(new Blob([buf]));
+  }
+};
+// ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
+const LIST_TABLES=["Inventario"];
+let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; const SP_DCOL={}; let SP_LISTNAMES=[];
+const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
+/* Día calendario de Ecuador del registro. Es la clave con la que se indexa
+   y se filtra por mes, así que tiene que ser la fecha local, no la UTC. */
+const recFecha=r=>ymdEC(r.fecha||r.FechaSolicitud||r.FechaCreacion||"");
+const recEstado=r=>String(r.estado||r.Estado||"");
+const norm=s=>String(s||"").toLowerCase().replace(/[\s_-]+/g,"");
+async function spSite(){ if(SP_SITE) return SP_SITE;
+  const s=await gfetch(`/sites/${APP.ms.siteHost}:${APP.ms.sitePath}`); SP_SITE=s.id; return SP_SITE; }
+// Descubre el nombre INTERNO real de cada columna y asegura una columna de datos multilínea
+async function spEnsureCols(site,lid,t){ if(SP_COLS[t]) return;
+  let cols=[]; try{ const r=await gfetch(`/sites/${site}/lists/${lid}/columns?$select=id,name,displayName,text,readOnly,hidden,indexed`); cols=r.value||[]; }catch(e){}
+  const findBy=pred=>cols.find(pred);
+  // 1. columna de datos: busca "Data" (interno o visible); si no, cualquier multilínea editable; si no, la crea
+  let dcol = findBy(c=>c.name==="Data") || findBy(c=>norm(c.displayName)==="data")
+          || findBy(c=>c.text&&c.text.allowMultipleLines&&!c.readOnly&&!c.hidden&&c.name!=="Title");
+  if(!dcol){ try{ const c=await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:"Data",text:{allowMultipleLines:true}}); dcol=c; }catch(e){} }
+  SP_DCOL[t]=dcol?dcol.name:"Data";
+  // 2. Fecha / Estado opcionales: usa el nombre interno real si existe; si no, intenta crear
+  const fcol=findBy(c=>norm(c.displayName)==="fecha"||c.name==="Fecha");
+  const ecol=findBy(c=>norm(c.displayName)==="estado"||c.name==="Estado");
+  SP_COLS[t]={d:SP_DCOL[t], f:fcol?fcol.name:null, e:ecol?ecol.name:null};
+  if(!fcol){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:"Fecha",text:{},indexed:true}); SP_COLS[t].f="Fecha"; }catch(e){} }
+  if(!ecol){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:"Estado",text:{},indexed:true}); SP_COLS[t].e="Estado"; }catch(e){} }
+  /* Si la columna Fecha/Estado ya existía sin indexar (listas creadas por versiones
+     anteriores de esta app), el filtro server-side de readDesde/readRango cae al
+     modo "no indexado": SharePoint puede rechazarlo cuando la lista crece (umbral
+     de 5000 elementos), y el código termina descargando la lista COMPLETA para
+     filtrar en el navegador. Se intenta indexar una sola vez; si falla (permisos,
+     lista ya muy grande para indexar en caliente, etc.) se seguía como hasta ahora. */
+  if(fcol && !fcol.indexed && fcol.id){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns/${fcol.id}`,"PATCH",{indexed:true}); }catch(e){} }
+  if(ecol && !ecol.indexed && ecol.id){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns/${ecol.id}`,"PATCH",{indexed:true}); }catch(e){} }
+}
+async function spEnsureList(t){ const site=await spSite();
+  if(SP_LIST[t]){ await spEnsureCols(site,SP_LIST[t],t); return SP_LIST[t]; }
+  const name=APP.ms.lists[t];
+  const all=await gfetch(`/sites/${site}/lists?$select=id,displayName,name&$top=200`);
+  SP_LISTNAMES=(all.value||[]).map(l=>l.displayName);
+  let hit=(all.value||[]).find(l=>l.displayName===name||l.name===name)
+        ||(all.value||[]).find(l=>norm(l.displayName)===norm(name)||norm(l.name)===norm(name));
+  if(hit){ SP_LIST[t]=hit.id; await spEnsureCols(site,hit.id,t); return hit.id; }
+  try{ const created=await gfetch(`/sites/${site}/lists`,"POST",{displayName:name,
+      columns:[{name:"Data",text:{allowMultipleLines:true}},{name:"Fecha",text:{}},{name:"Estado",text:{}}],
+      list:{template:"genericList"}}); SP_LIST[t]=created.id; await spEnsureCols(site,created.id,t); return created.id;
+  }catch(e){ throw new Error(`No encontré la lista "${name}". Existentes: ${SP_LISTNAMES.join(", ")||"(ninguna)"}. Crea esa lista o renómbrala.`); } }
+function spMerge(t,items){ const dcol=SP_DCOL[t]||"Data"; const map=SP_MAP[t]||new Map();
+  items.forEach(it=>{ const d=it.fields&&it.fields[dcol]; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
+    map.set(rec.id,{spId:it.id,hash:d}); }); SP_MAP[t]=map; }
+async function spPages(t,query){ const site=await spSite(); const lid=await spEnsureList(t);
+  let url=`/sites/${site}/lists/${lid}/items?$expand=fields&$top=500${query?("&"+query):""}`;
+  const items=[]; while(url){ const page=await gfetch(url.replace(GBASE,""),"GET",null,false,PREFER_NX);
+    (page.value||[]).forEach(x=>items.push(x)); url=page["@odata.nextLink"]||null; } return items; }
+function spParse(t,items){ const dcol=SP_DCOL[t]||"Data";
+  return items.map(it=>{ try{return JSON.parse(it.fields[dcol]);}catch{return null;} }).filter(Boolean); }
+/* Caché en memoria de la lista completa por tabla. Antes, CADA aprobación/cambio
+   (ver colaAplicarCambio) volvía a descargar y parsear la lista ENTERA de SharePoint
+   solo para ubicar un registro — con el histórico de meses de ILD eso significaba
+   varias páginas de 500 ítems por cada botón "Aprobar", y por eso ama de llaves veía
+   la app pesada y las aprobaciones se quedaban pendientes (timeout / reintento).
+   Ahora se guarda la última lectura completa un rato corto: si dos acciones ocurren
+   seguidas (aprobar varios ILD uno tras otro) solo la primera pega a la red. */
+const SP_ITEMS={}; const SP_LIST_TTL_MS=45000;
+function spCacheSet(t,items){ SP_ITEMS[t]={items,ts:Date.now()}; }
+function spCacheGet(t){ const c=SP_ITEMS[t]; if(!c) return null;
+  return (Date.now()-c.ts)<SP_LIST_TTL_MS ? c.items : null; }
+function spCachePut(t,rec){ const c=SP_ITEMS[t]; if(!c) return;
+  const i=c.items.findIndex(x=>x.id===rec.id); if(i>=0) c.items[i]=rec; else c.items=[rec,...c.items]; c.ts=Date.now(); }
+const ListStore={
+  async read(t,opts){ const fresh=opts&&opts.noCache;
+    if(!fresh){ const cached=spCacheGet(t); if(cached) return cached; }
+    const items=await spPages(t,""); spMerge(t,items); const parsed=spParse(t,items); spCacheSet(t,parsed); return parsed; },
+  async readDesde(t,since){ await spEnsureList(t); const c=SP_COLS[t]||{};
+    if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=since);
+    try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${since}'`); spMerge(t,items); return spParse(t,items); }
+    catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
+  async readRango(t,desde,hasta){ await spEnsureList(t); const c=SP_COLS[t]||{};
+    if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta);
+    /* La columna indexada de fecha pudo escribirse en UTC por versiones anteriores.
+       Se pide un día más a cada lado y el recorte fino lo hace recFecha, que ya
+       traduce a hora de Ecuador. Así no se pierden los registros del borde. */
+    const d0=sumaDiasYMD(desde,-1), d1=sumaDiasYMD(hasta,1);
+    try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${d0}' and fields/${c.f} lt '${d1}'`); spMerge(t,items);
+      return spParse(t,items).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); }
+    catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); } },
+  /* Trae, sin descargar la lista completa, los registros que sigan "Pendiente"
+     y sean de ANTES de cierta fecha. Se usa para la "vigencia" de la bandeja:
+     lo reciente se trae por fecha (readDesde) y esto complementa con pendientes
+     viejos que aún no se han resuelto, para que no desaparezcan sin que nadie
+     los haya revisado. Si la lista no tiene columnas Fecha/Estado indexadas
+     (versión muy antigua sin esas columnas) se devuelve vacío en vez de forzar
+     otra descarga completa — el registro seguirá en SharePoint igual. */
+  async readPendientes(t,antesDe){ await spEnsureList(t); const c=SP_COLS[t]||{};
+    if(!c.f || !c.e) return [];
+    try{ const items=await spPages(t,`$filter=fields/${c.e} eq 'Pendiente' and fields/${c.f} lt '${antesDe}'`);
+      spMerge(t,items); return spParse(t,items); }
+    catch(e){ return []; } },
+  /* Trae UN solo registro por su id, sin descargar la lista completa. Si ya se
+     conoce su spId (porque el registro salió en un readDesde/read anterior de esta
+     sesión, que es el caso normal: la bandeja de aprobación ya lo trajo al abrir la
+     pantalla), es una sola llamada liviana a Graph. Solo si el registro es
+     desconocido en esta sesión se recurre a traer la lista para ubicarlo. */
+  async readOne(t,id,codigo){ await spEnsureList(t);
+    const cached=spCacheGet(t); if(cached){ const hit=cached.find(x=>x.id===id||(codigo&&x.Codigo===codigo)); if(hit) return hit; }
+    const m=(SP_MAP[t]||new Map()).get(id);
+    if(m){ const site=await spSite(); const lid=await spEnsureList(t); const dcol=SP_DCOL[t]||"Data";
+      try{ const it=await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}?$expand=fields`);
+        const d=it.fields&&it.fields[dcol]; if(d){ let rec; try{ rec=JSON.parse(d);}catch{rec=null;}
+          if(rec){ SP_MAP[t].set(rec.id,{spId:it.id,hash:d}); return rec; } } }
+      catch(e){ /* el spId pudo quedar obsoleto (ítem movido/borrado): cae al plan B */ } }
+    const items=await this.read(t,{noCache:true});
+    return items.find(x=>x.id===id) || (codigo?items.find(x=>x.Codigo===codigo):null); },
+  async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t); const c=SP_COLS[t]||{d:"Data"};
+    if(!SP_MAP[t]) await this.read(t); const map=SP_MAP[t]||new Map();
+    for(const rec of arr){ const j=JSON.stringify(rec); const m=map.get(rec.id);
+      const full={Title:String(rec.Codigo||rec.id||"").slice(0,255)}; full[c.d||"Data"]=j;
+      if(c.f) full[c.f]=recFecha(rec); if(c.e) full[c.e]=recEstado(rec);
+      const basico={Title:full.Title}; basico[c.d||"Data"]=j;
+      if(!m){ let cr; try{ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
+          catch(e){ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
+        map.set(rec.id,{spId:cr.id,hash:j}); }
+      else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
+          catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; }
+      spCachePut(t,rec); }
+    SP_MAP[t]=map; },
+  /* Escribe UN solo registro (alta o cambio puntual) sin tocar el resto de la
+     lista: es la contraparte de readOne y la que usa colaAplicarCambio para que
+     aprobar un ILD sea 1 lectura + 1 escritura, no la lista completa. */
+  async writeOne(t,rec){ const site=await spSite(); const lid=await spEnsureList(t); const c=SP_COLS[t]||{d:"Data"};
+    if(!SP_MAP[t]) SP_MAP[t]=new Map(); const map=SP_MAP[t];
+    const j=JSON.stringify(rec); const m=map.get(rec.id);
+    const full={Title:String(rec.Codigo||rec.id||"").slice(0,255)}; full[c.d||"Data"]=j;
+    if(c.f) full[c.f]=recFecha(rec); if(c.e) full[c.e]=recEstado(rec);
+    const basico={Title:full.Title}; basico[c.d||"Data"]=j;
+    if(!m){ let cr; try{ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
+        catch(e){ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
+      map.set(rec.id,{spId:cr.id,hash:j}); }
+    else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
+        catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; }
+    spCachePut(t,rec); },
+  async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t); const dcol=SP_DCOL[t]||"Data";
+    const items=await spPages(t,""); let n=0;
+    for(const it of items){ let r; try{ r=JSON.parse(it.fields[dcol]); }catch{ continue; }
+      if(r && (r.id===id || r.Codigo===id)){ await gfetch(`/sites/${site}/lists/${lid}/items/${it.id}`,"DELETE"); n++; } }
+    if(SP_MAP[t]) SP_MAP[t].delete(id);
+    const c=SP_ITEMS[t]; if(c) c.items=c.items.filter(x=>x.id!==id);
+    if(!n) throw new Error("No se encontró ese registro en la lista (quizá ya estaba borrado)."); }
+};
+async function migrarAListas(){ if(localStorage.getItem("pp_lists_migrated2")) return;
+  for(const t of LIST_TABLES){ try{ await spEnsureList(t); const cur=await ListStore.read(t);
+    if(!cur.length){ let old=[]; try{ old=await GraphStore.read(t); }catch{} if(Array.isArray(old)&&old.length) await ListStore.write(t,old); }
+  }catch(e){} } localStorage.setItem("pp_lists_migrated2","1"); }
+const hoyISO=()=>hoyEC();
+const desdeDias=n=>sumaDiasYMD(hoyEC(),-n);
+const Store = {
+  read(t){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t):GraphStore.read(t); },
+  write(t,a){ if(MODE!=="graph") return Local.write(t,a); return LIST_TABLES.includes(t)?ListStore.write(t,a):GraphStore.write(t,a); },
+  /* Trae/guarda UN registro sin pasar por la lista completa (ver ListStore.readOne
+     / writeOne más arriba). En modo local o para las tablas que aún viven en un
+     único JSON (GraphStore) no hay ganancia posible — ahí sí hace falta el arreglo
+     entero — así que se resuelve igual que antes. */
+  async readOne(t,id,codigo){ if(MODE!=="graph"){ const a=Local.read(t); return a.find(x=>x.id===id)||(codigo?a.find(x=>x.Codigo===codigo):null); }
+    if(LIST_TABLES.includes(t)) return ListStore.readOne(t,id,codigo);
+    const a=await GraphStore.read(t); return a.find(x=>x.id===id)||(codigo?a.find(x=>x.Codigo===codigo):null); },
+  async writeOne(t,rec){ if(MODE!=="graph"){ const a=Local.read(t); const i=a.findIndex(x=>x.id===rec.id);
+      if(i>=0) a[i]=rec; else a.unshift(rec); Local.write(t,a); return; }
+    if(LIST_TABLES.includes(t)) return ListStore.writeOne(t,rec);
+    const a=await GraphStore.read(t); const i=a.findIndex(x=>x.id===rec.id);
+    if(i>=0) a[i]=rec; else a.unshift(rec); await GraphStore.write(t,a); },
+  async remove(t,id){ if(MODE!=="graph"){ const a=Local.read(t); Local.write(t,a.filter(x=>(x.id||x.Codigo)!==id)); return; }
+    if(LIST_TABLES.includes(t)) return ListStore.remove(t,id);
+    const a=await GraphStore.read(t); await GraphStore.write(t,a.filter(x=>(x.id||x.Codigo)!==id)); },
+  async readDesde(t,since){ if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=since);
+    return LIST_TABLES.includes(t)?ListStore.readDesde(t,since):(await GraphStore.read(t)).filter(r=>recFecha(r)>=since); },
+  /* Pendientes de ANTES de "antesDe" (ver ListStore.readPendientes): para que la
+     "vigencia" de una bandeja no oculte una aprobación que quedó olvidada. */
+  async readPendientesAntiguos(t,antesDe){ if(MODE!=="graph") return Local.read(t).filter(r=>recEstado(r)==="Pendiente"&&recFecha(r)<antesDe);
+    return LIST_TABLES.includes(t)?ListStore.readPendientes(t,antesDe):(await GraphStore.read(t)).filter(r=>recEstado(r)==="Pendiente"&&recFecha(r)<antesDe); },
+  async readMes(t,y,m){ const s=`${y}-${String(m+1).padStart(2,'0')}-01`; const e=m===11?`${y+1}-01-01`:`${y}-${String(m+2).padStart(2,'0')}-01`;
+    if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=s&&recFecha(r)<e);
+    return LIST_TABLES.includes(t)?ListStore.readRango(t,s,e):(await GraphStore.read(t)).filter(r=>recFecha(r)>=s&&recFecha(r)<e); },
+  async readAnio(t,y){ const s=`${y}-01-01`,e=`${y+1}-01-01`;
+    if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=s&&recFecha(r)<e);
+    return LIST_TABLES.includes(t)?ListStore.readRango(t,s,e):(await GraphStore.read(t)).filter(r=>recFecha(r)>=s&&recFecha(r)<e); }
+};
+
+async function subirFotos(fotos,carpetaId,prefijo){
+  if(MODE!=="graph") return fotos.map((d,i)=>({nombre:`${prefijo}_${i+1}.jpg`,data:d}));
+  try{ await GraphStore.ensureCarpeta(carpetaId); }catch(e){}
+  return Promise.all(fotos.map(async(d,i)=>{ const nombre=`${prefijo}_${i+1}.jpg`;
+    try{ return await GraphStore.putFoto(d,nombre,carpetaId); }catch(e){ return {nombre,error:true}; } }));
+}
+async function addNotif(para,texto,ildId,codigo){
+  if(!para) return;
+  try{ const arr=await Store.read("Notif");
+    arr.push({id:gid(),para,texto,ildId,codigo,fecha:nowISO()});
+    await Store.write("Notif",arr); }catch(e){}
+}
+
+async function subirCotiz(dataUrl,carpetaId,codigo){
+  const isPdf=/^data:application\/pdf/i.test(dataUrl||"");
+  const nombre=`${codigo}_cotizacion.${isPdf?"pdf":"jpg"}`; const tipo=isPdf?"pdf":"img";
+  if(MODE!=="graph") return {tipo,nombre,data:dataUrl};
+  try{ await GraphStore.ensureCarpeta(carpetaId); }catch(e){}
+  try{ const r=await GraphStore.putFoto(dataUrl,nombre,carpetaId); return {tipo,nombre,path:r.path}; }
+  catch(e){ return {tipo,nombre,error:true}; }
+}
+async function abrirCotiz(cot){ if(!cot) return;
+  try{ let url=cot.data||"";
+    if(!url && cot.path && MODE==="graph"){ const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${cot.path}:/content`,"GET",null,true);
+      url=URL.createObjectURL(new Blob([buf],{type:cot.tipo==="pdf"?"application/pdf":"image/jpeg"})); }
+    if(url) window.open(url,"_blank"); else alert("La cotización no está disponible.");
+  }catch(e){ alert("No se pudo abrir la cotización."); }
+}
+
+let msErr="";
+const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/Mail.Send","https://graph.microsoft.com/User.Read"];
+const MAIL_SCOPE=["https://graph.microsoft.com/Mail.Send"];
+async function msInitApp(){
+  if(msalApp) return;
+  msalApp=new msal.PublicClientApplication({auth:{clientId:APP.ms.clientId,
+    authority:`https://login.microsoftonline.com/${APP.ms.tenantId}`,redirectUri:APP.ms.redirectUri},
+    cache:{cacheLocation:"localStorage"}});
+  await msalApp.initialize();
+}
+async function setGraphUser(acc){ if(acc) graphUser=acc.username||acc.name||graphUser;
+  try{ const me=await gfetch("/me"); graphUser=me.mail||me.userPrincipalName||graphUser; }catch{} }
+// Al cargar: recupera token (de una redirección de vuelta o de sesión previa). No abre nada.
+async function msEnsure(){
+  if(typeof msal==="undefined"){ msErr="No se cargó MSAL (la red bloqueó la CDN)."; return false; }
+  try{ await msInitApp();
+    let resp=null; try{ resp=await msalApp.handleRedirectPromise(); }catch(e){ msErr=e.errorMessage||e.message||String(e); }
+    if(resp && resp.accessToken){ graphToken=resp.accessToken; await setGraphUser(resp.account); return true; }
+    const accs=msalApp.getAllAccounts();
+    if(accs.length){ try{ const r=await msalApp.acquireTokenSilent({scopes:MS_SCOPES,account:accs[0]});
+      graphToken=r.accessToken; await setGraphUser(accs[0]); return true; }catch(e){} }
+  }catch(e){ msErr=e.errorMessage||e.message||String(e); }
+  return false;
+}
+// Inicia sesión por redirección (debe llamarse desde un clic). Navega a Microsoft y vuelve.
+async function msSignIn(){ msErr=""; await msInitApp(); await msalApp.loginRedirect({scopes:MS_SCOPES}); }
+async function msSignOut(){ try{ await msInitApp(); const a=msalApp.getAllAccounts()[0];
+    await msalApp.logoutRedirect({account:a, postLogoutRedirectUri:APP.ms.redirectUri}); }catch(e){ location.reload(); } }
+
+const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
+const esDev = u => u && u.rol==='desarrollador';
+
+let USERS=[
+  {id:'dev',nombre:'Desarrollador',pin:'9999',rol:'desarrollador',areas:[]},
+  {id:'g1',nombre:'Gerencia General',pin:'0000',rol:'gerencia',areas:[]},
+  {id:'a1',nombre:'Jefe de Operaciones',pin:'1001',rol:'aprobador',areas:['Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Cierre Plaza Paraíso','Apertura Cocina','Cocina Central','Cocina Almeja Playera','Servicio Almeja Playera','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
+  {id:'a2',nombre:'Coordinador Comercial',pin:'1002',rol:'aprobador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'a3',nombre:'Jefe de Mantenimiento',pin:'1003',rol:'aprobador',areas:['Mantenimiento']},
+  {id:'a4',nombre:'Ama de Llaves',pin:'1004',rol:'aprobador',areas:['Áreas Públicas','Habitaciones']},
+  {id:'a5',nombre:'Coordinador de Compras',pin:'1005',rol:'aprobador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
+  {id:'c1',nombre:'Recepcion',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c2',nombre:'Ángel Benites',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c3',nombre:'Daniela',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c4',nombre:'Lady',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c5',nombre:'Jonathan Mazzini',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c6',nombre:'Daniel Guevara',pin:'',rol:'colaborador',areas:['Áreas Públicas']},
+  {id:'c7',nombre:'Dary Hidalgo',pin:'',rol:'colaborador',areas:['Áreas Públicas']},
+  {id:'c8',nombre:'Jocelyn',pin:'',rol:'colaborador',areas:['Habitaciones']},
+  {id:'c9',nombre:'Justin',pin:'',rol:'colaborador',areas:['Habitaciones']},
+  {id:'c10',nombre:'Shirley Fuentes',pin:'',rol:'colaborador',areas:['Apertura Cocina','Cocina Central','Chiringuito','Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Sunset Bar','Sunset Deck']},
+  {id:'c11',nombre:'Fernando Urrutia',pin:'',rol:'colaborador',areas:['Apertura Cocina','Cocina Central','Chiringuito','Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Sunset Bar','Sunset Deck']},
+  {id:'c12',nombre:'Andrés Mite',pin:'',rol:'colaborador',areas:['Cocina Almeja Playera']},
+  {id:'c13',nombre:'Adriana',pin:'',rol:'colaborador',areas:['Servicio Almeja Playera']},
+  {id:'c14',nombre:'Manuel C.',pin:'',rol:'colaborador',areas:['Mantenimiento']},
+  {id:'c15',nombre:'Xavier L.',pin:'',rol:'colaborador',areas:['Mantenimiento']},
+  {id:'c16',nombre:'Josue Aquino',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
+  {id:'c17',nombre:'Departamento Compras',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
+  {id:'c18',nombre:'Eventual',pin:'',rol:'colaborador',areas:['Áreas Públicas','Servicio A la Carta','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
+];
+const ICONS={
+  clipboard:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/>',
+  cart:'<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  wrench:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  kanban:'<rect x="3" y="4" width="4" height="16" rx="1"/><rect x="10" y="4" width="4" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  chevronLeft:'<path d="M15 18l-6-6 6-6"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  home:'<path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10"/>',
+  camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
+  calendar:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',
+  filetext:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6M9 9h1"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
+  trash:'<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+  edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  chat:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  chart:'<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
+  trendup:'<path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  refresh:'<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  building:'<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M9 6h.01M13 6h.01M9 10h.01M13 10h.01M9 14h.01M13 14h.01"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  play:'<path d="M6 4l14 8-14 8V4z"/>',
+  x:'<path d="M18 6L6 18M6 6l12 12"/>',
+  chevronDown:'<path d="M6 9l6 6 6-6"/>',
+  chevronUp:'<path d="M18 15l-6-6-6 6"/>',
+  alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+  radioOn:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+  radioOff:'<circle cx="12" cy="12" r="9"/>'
+};
+function Icon({name,size=22,style,cls}){ const p=ICONS[name]; if(!p) return null;
+  return <svg className={cls} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} dangerouslySetInnerHTML={{__html:p}}/>; }
+
+
+function Field({label,req,children,hint}){
+  return <div className="field"><label>{label} {req&&<span className="req">*</span>}</label>{children}
+    {hint&&<div className="hint">{hint}</div>}</div>;
+}
+
+function Modal({title,onClose,children}){
+  return <div className="ovl" onClick={onClose}>
+    <div className="modal" onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <h3 style={{margin:0}}>{title}</h3>
+        <button className="iconbtn" style={{background:"#eee",color:"#333"}} onClick={onClose}><Icon name="x" size={15}/></button>
+      </div>{children}</div></div>;
+}
+
+function Login({onLogin}){
+  const [step,setStep]=useState("choice"); // choice | pin | libre
+  const pinUsers=USERS.filter(u=>u.pin);
+  const colabs=USERS.filter(u=>u.rol==='colaborador').sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const [name,setName]=useState(""); const [pin,setPin]=useState(""); const [err,setErr]=useState("");
+  const press=d=>{ setErr(""); setPin(p=> p.length<4 ? p+d : p); };
+  useEffect(()=>{ if(step==='pin'&&pin.length===4){
+    const u=pinUsers.find(x=>x.nombre===name&&x.pin===pin);
+    if(u){ setTimeout(()=>onLogin(u),120); } else { setErr("PIN incorrecto"); setTimeout(()=>setPin(""),450); }
+  }},[pin]);
+  return <div className="login">
+    <div className="sun"></div><div className="wave"></div>
+    <div className="lcard">
+      <div className="loginlogo" style={{display:"flex",alignItems:"center",justifyContent:"center",height:64}}><span style={{fontSize:40}}>🏝️</span></div>
+      <div className="ltag">Gestión operativa del hotel</div>
+
+      {step==="choice" && <div className="lchoice">
+        <button className="lbig pri" onClick={()=>{setStep("pin");setName(pinUsers[0]?.nombre||"");setPin("");setErr("");}}>
+          <span className="e" style={{background:"var(--ocean)"}}><Icon name="lock" size={22}/></span>
+          <span><span className="tt">Ingresar con PIN</span><span className="dd">Jefaturas · Aprobadores · Gerencia</span></span></button>
+        <button className="lbig" onClick={()=>{setStep("libre");setName("");setErr("");}}>
+          <span className="e" style={{background:"var(--coral)"}}><Icon name="user" size={22}/></span>
+          <span><span className="tt">Soy colaborador</span><span className="dd">Sin PIN — solo elige tu nombre</span></span></button>
+      </div>}
+
+      {step==="pin" && <div>
+        <select className="lsel" value={name} onChange={e=>{setName(e.target.value);setPin("");setErr("");}}>
+          {pinUsers.map(u=><option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select>
+        <div className="ldots">{[0,1,2,3].map(i=><i key={i} className={i<pin.length?"f":""}/>)}</div>
+        <div className="lpad">
+          {[1,2,3,4,5,6,7,8,9].map(n=><button key={n} onClick={()=>press(""+n)}>{n}</button>)}
+          <button className="fn" onClick={()=>setPin(p=>p.slice(0,-1))}>Borrar</button>
+          <button onClick={()=>press("0")}>0</button>
+          <button className="fn" onClick={()=>setPin("")}>Limpiar</button>
+        </div>
+        <div className="lerr">{err}</div>
+        <button className="lback" onClick={()=>{setStep("choice");setPin("");setErr("");}}><Icon name="chevronLeft" size={15} style={{marginRight:6}}/>Volver</button>
+      </div>}
+
+      {step==="libre" && <div>
+        <select className="lsel" value={name} onChange={e=>{setName(e.target.value);setErr("");}}>
+          <option value="">Selecciona tu nombre…</option>
+          {colabs.map(u=><option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select>
+        <button className="btn primary block" onClick={()=>{ const u=colabs.find(x=>x.nombre===name);
+          if(!u){setErr("Selecciona tu nombre");return;} onLogin(u); }}>Entrar</button>
+        <div className="lerr">{err}</div>
+        <button className="lback" onClick={()=>{setStep("choice");setErr("");}}><Icon name="chevronLeft" size={15} style={{marginRight:6}}/>Volver</button>
+      </div>}
+    </div>
+    <div className="lfoot">{APP.versionShort}</div>
+  </div>;
+}
+
+/* ======================================================================
+   MÓDULO INVENTARIO A&B — cierre diario de bodegas + vista para Jefatura/GG
+   Añadido para Playa Paraíso. Sigue el mismo patrón que ILD/Compras:
+   registros en la lista SharePoint "PP_Inventario" (Store/ListStore ya
+   la crea sola la primera vez que se usa) y un catálogo de bodegas/
+   productos + accesos por colaborador en su propio archivo
+   NEXO_Inventario_Config.json (no toca NEXO_Config.json del ILD).
+   ====================================================================== */
+const INV_SEED_BODEGAS = [{"codigo":"04","nombre":"COCINA CENTRAL","productos":[{"codigo":"101010","nombre":"PECHUGA DE POLLO 120GR","unidad":""},{"codigo":"101024","nombre":"PECHUGA DE POLLO 180g","unidad":""},{"codigo":"102024","nombre":"LOMO FINO DE 180G","unidad":""},{"codigo":"102043","nombre":"LOMO FINO DE 120GR","unidad":""},{"codigo":"102053","nombre":"COSTILLA DE CERDO 80 GR PARRILLA","unidad":""},{"codigo":"102059","nombre":"COSTILLA DE CERDO 120 GR","unidad":""},{"codigo":"102060","nombre":"CHULETA CERDO 100 GR","unidad":""},{"codigo":"102064","nombre":"FILET MIÑON 120 GR","unidad":""},{"codigo":"102072","nombre":"COSTILLA DE CERDO 180G","unidad":""},{"codigo":"103067","nombre":"DORADO 100G","unidad":""},{"codigo":"103081","nombre":"DORADO 120G","unidad":""},{"codigo":"103093","nombre":"PESCADO WAHOO 120g","unidad":""},{"codigo":"103094","nombre":"WAHOO 100G","unidad":""},{"codigo":"500026","nombre":"MIXTURA DE MARISCOS COCINA CENTRAL CARTA INCLUIDA","unidad":""},{"codigo":"5024001","nombre":"CORDON BLUE","unidad":""},{"codigo":"5024008","nombre":"MILANESA DE POLLO","unidad":""},{"codigo":"102006","nombre":"CARNE MOLIDA","unidad":""},{"codigo":"102012","nombre":"COSTILLA DE RES","unidad":""},{"codigo":"102023","nombre":"LOMO DE ASADO DE RES","unidad":""},{"codigo":"102026","nombre":"LOMO FINO DE RES","unidad":""},{"codigo":"102030","nombre":"MONDONGO DE RES","unidad":""},{"codigo":"102044","nombre":"PULPA FILETEADA DE RES","unidad":""},{"codigo":"102045","nombre":"SALON DE RES","unidad":""},{"codigo":"102049","nombre":"LOMO FINO DE RES BRIDADO","unidad":""},{"codigo":"102067","nombre":"LOMITO DE LOMO FINO","unidad":""},{"codigo":"102070","nombre":"LOMITO DE PULPA ENTERA","unidad":""},{"codigo":"101015","nombre":"POLLO PRESA","unidad":""},{"codigo":"101005","nombre":"PECHUGA DE POLLO SIN HUESO","unidad":""},{"codigo":"101009","nombre":"POLLO CHIRINGUITO","unidad":""},{"codigo":"1010148","nombre":"PECHUGA DE POLLO DESHUESADA","unidad":""},{"codigo":"102009","nombre":"CHULETA DE CENTRO DE CERDO","unidad":""},{"codigo":"102011","nombre":"COSTILLA DE CERDO","unidad":""},{"codigo":"102016","nombre":"FRITADA DE CERDO","unidad":""},{"codigo":"102017","nombre":"GRASA DE CERDO","unidad":""},{"codigo":"102022","nombre":"LOMO DE ASADO DE CERDO","unidad":""},{"codigo":"102054","nombre":"LOMO DE CERDO BRIDADO","unidad":""},{"codigo":"102063","nombre":"PANCETA","unidad":""},{"codigo":"102007","nombre":"CHIVO DE PIERNA O BRAZO","unidad":""},{"codigo":"103001","nombre":"ALBACORA EN LOMOS","unidad":""},{"codigo":"103030","nombre":"PEZ DORADO","unidad":""},{"codigo":"103037","nombre":"TILAPIA P/CEVICHE","unidad":""},{"codigo":"103083","nombre":"DORADO 60G","unidad":""},{"codigo":"103091","nombre":"PESCADO WAHOO","unidad":""},{"codigo":"103092","nombre":"WAHOO 60G","unidad":""},{"codigo":"103004","nombre":"AROS DE CALAMAR","unidad":""},{"codigo":"103012","nombre":"CAMARON IQF 31/35","unidad":""},{"codigo":"103013","nombre":"CAMARON IQF 36/40","unidad":""},{"codigo":"103015","nombre":"CONCHAS SACADAS","unidad":""},{"codigo":"103022","nombre":"LANGOSTINOS U5","unidad":""},{"codigo":"103028","nombre":"OSTRAS SACADA","unidad":""},{"codigo":"103033","nombre":"PULPA DE CANGREJO","unidad":""},{"codigo":"103070","nombre":"MEJILLONES COCIDOS","unidad":""},{"codigo":"103075","nombre":"CABEZA CALAMAR COCIDO","unidad":""},{"codigo":"103076","nombre":"CUERPO CALAMAR COCIDO","unidad":""},{"codigo":"103082","nombre":"ALMEJAS COCIDAS","unidad":""},{"codigo":"103034","nombre":"PULPO ENTERO","unidad":""},{"codigo":"","nombre":"UÑA DE CANGREJO","unidad":""},{"codigo":"104003","nombre":"CREMA DE LECHE","unidad":""},{"codigo":"104005","nombre":"HUEVOS","unidad":""},{"codigo":"104008","nombre":"LECHE ENTERA","unidad":""},{"codigo":"105211","nombre":"JUGO DE LIMON SUSCEDANEO 3.75L","unidad":""},{"codigo":"1091027","nombre":"COL BLANCA","unidad":""},{"codigo":"1091050","nombre":"LECHUGA CRIOLLA","unidad":""},{"codigo":"1091080","nombre":"VERDES","unidad":""},{"codigo":"1091084","nombre":"ZANAHORIA AMARILLA","unidad":""},{"codigo":"108017","nombre":"MANZANA VERDE","unidad":""},{"codigo":"108025","nombre":"PERAS","unidad":""},{"codigo":"108020","nombre":"MORA","unidad":""},{"codigo":"108026","nombre":"PIÑAS","unidad":""},{"codigo":"108034","nombre":"SANDIAS","unidad":""},{"codigo":"105015","nombre":"AZUCAR BLANCA","unidad":""},{"codigo":"105047","nombre":"GELATINA SIN SABOR","unidad":""}]},{"codigo":"06","nombre":"ALMEJA PLAYERA COCINA","productos":[{"codigo":"102024","nombre":"LOMO FINO DE 180GR","unidad":""},{"codigo":"101011","nombre":"PECHUGA DE POLLO 180GR","unidad":""},{"codigo":"101008","nombre":"POLLO ENTERO SIN MENUDENCIA","unidad":""},{"codigo":"-","nombre":"SECO DE POLLO - PORCION","unidad":""},{"codigo":"102007","nombre":"CHIVO DE PIERNA O BRAZO","unidad":""},{"codigo":"103076","nombre":"CUERPO CALAMAR COCIDO","unidad":""},{"codigo":"103067","nombre":"DORADO 100 GR","unidad":""},{"codigo":"103004","nombre":"AROS DE CALAMAR","unidad":""},{"codigo":"103082","nombre":"ALMEJAS COCIDAS","unidad":""},{"codigo":"103019","nombre":"CORVINA PLATERA","unidad":""},{"codigo":"103016","nombre":"CORVINA 180GR","unidad":""},{"codigo":"103037","nombre":"TILAPIA P/CEVICHE","unidad":""},{"codigo":"103029","nombre":"UÑAS DE CANGREJO","unidad":""},{"codigo":"103028","nombre":"OSTRAS SACADA","unidad":""},{"codigo":"103033","nombre":"PULPA DE CANGREJO","unidad":""},{"codigo":"103012","nombre":"CAMARON IQF 31/35","unidad":""},{"codigo":"103085","nombre":"PULPO COCINADO","unidad":""},{"codigo":"","nombre":"LANGOSTINO U5","unidad":""},{"codigo":"500025","nombre":"MIXTURA DE MARISCOS VILLAMAR","unidad":""},{"codigo":"103070","nombre":"MEJILLONES COCIDOS","unidad":""},{"codigo":"103075","nombre":"CABEZA CALAMAR COCIDO","unidad":""},{"codigo":"103015","nombre":"CONCHAS SACADAS","unidad":""},{"codigo":"103001","nombre":"ALBACORA EN LOMOS","unidad":""},{"codigo":"103021","nombre":"LANGOSTAS","unidad":""},{"codigo":"302056","nombre":"VINO BLANCO COCINA CENTRAL","unidad":""},{"codigo":"302057","nombre":"VINO TINTO COCINA CENTRAL","unidad":""},{"codigo":"104003","nombre":"CREMA DE LECHE","unidad":""},{"codigo":"104008","nombre":"LECHE ENTERA","unidad":""},{"codigo":"104019","nombre":"QUESO MOZARELLA","unidad":""},{"codigo":"104020","nombre":"QUESO PARMESANO","unidad":""},{"codigo":"103005","nombre":"ATUN ROJO","unidad":""},{"codigo":"102072","nombre":"COSTILLA DE CERDO 180G","unidad":""}]},{"codigo":"07","nombre":"CHIRINGUITO COCINA","productos":[{"codigo":"101005","nombre":"PECHUGA DE POLLO SIN HUESO","unidad":""},{"codigo":"101009","nombre":"POLLO CHIRINGUITO","unidad":""},{"codigo":"102062","nombre":"HAMBURGUESA 100 GR","unidad":""},{"codigo":"103004","nombre":"AROS DE CALAMAR","unidad":""},{"codigo":"103012","nombre":"CAMARON IQF 31/35","unidad":""},{"codigo":"103013","nombre":"CAMARON IQF 36/40","unidad":""},{"codigo":"103037","nombre":"TILAPIA P/CEVICHE","unidad":""},{"codigo":"104016","nombre":"QUESO FRESCO","unidad":""},{"codigo":"104018","nombre":"QUESO JAVERINO","unidad":""},{"codigo":"104024","nombre":"SALCHICHA P/HOT DOG 15CM","unidad":""},{"codigo":"104051","nombre":"QUESO CHEDDAR LIQUIDO","unidad":""},{"codigo":"105078","nombre":"PAPA COBERTURA","unidad":""},{"codigo":"105094","nombre":"SALSA BBQ","unidad":""},{"codigo":"105098","nombre":"SALSA DE TOMATE","unidad":""},{"codigo":"105112","nombre":"PAN HOT DOG (UNIDAD)","unidad":""},{"codigo":"105113","nombre":"PAN HAMBURGUESA ( UNIDAD )","unidad":""},{"codigo":"105120","nombre":"PAPAS FRITAS LISAS 200GR","unidad":""},{"codigo":"1071004","nombre":"ACEITE INDUSTRIAL","unidad":""},{"codigo":"1091019","nombre":"CEBOLLA PAITEÑA","unidad":""},{"codigo":"1091020","nombre":"CEBOLLA PERLA","unidad":""},{"codigo":"1091050","nombre":"LECHUGA CRIOLLA","unidad":""},{"codigo":"1091056","nombre":"MADUROS","unidad":""},{"codigo":"1091077","nombre":"TOMATE RIÑON","unidad":""},{"codigo":"1091080","nombre":"VERDES","unidad":""}]},{"codigo":"08","nombre":"SUNSET BAR BEBIDAS","productos":[{"codigo":"201005","nombre":"AGUA MINERAL VIDRIO 300ML","unidad":""},{"codigo":"201034","nombre":"AGUA MINERAL 330ML NO RETORNABLE","unidad":""},{"codigo":"201003","nombre":"AGUA DASANI","unidad":""},{"codigo":"201022","nombre":"COCA COLA 300 ML VIDRIO","unidad":""},{"codigo":"201012","nombre":"GASEOSA COCACOLA LIGHT 500ML","unidad":""},{"codigo":"201035","nombre":"COCA COLA ZERO","unidad":""},{"codigo":"201024","nombre":"COLA FIORA 300 ML VIDRIO","unidad":""},{"codigo":"201025","nombre":"COLA FANTA 300 ML VIDRIO","unidad":""},{"codigo":"201019","nombre":"GASEOSA SPRITE 300ML VIDRIO","unidad":""},{"codigo":"201018","nombre":"FUZE TEA 300ML RETORNABLE","unidad":""},{"codigo":"301003","nombre":"CERVEZA CORONA 330ML","unidad":""},{"codigo":"301002","nombre":"CERVEZA CLUB VERDE 330ML","unidad":""},{"codigo":"301009","nombre":"CERVEZA STELLA 330ML","unidad":""},{"codigo":"302025","nombre":"RON BACARDI (604)/463 de 700ml","unidad":""},{"codigo":"302047","nombre":"FREIXENET CARTA NEVADA","unidad":""},{"codigo":"302009","nombre":"FREIXENET CORDON NEGRO","unidad":""},{"codigo":"302046","nombre":"VINO BLANCO MARQUES DE RISCAL RUEDA","unidad":""},{"codigo":"302024","nombre":"VINO TINTO MARQUES DE RISCAL ARIENZO","unidad":""},{"codigo":"302049","nombre":"GRAN DUQUE ALBA","unidad":""},{"codigo":"302003","nombre":"BOMBAY SHAPIRE 582","unidad":""},{"codigo":"","nombre":"GREY GOOSE (706 tara)","unidad":""},{"codigo":"302076","nombre":"VINO CARMEN INSIGNE CHARDONAY/410","unidad":""},{"codigo":"302075","nombre":"VINO CARMEN INSIGNE MERLOT/390/380","unidad":""},{"codigo":"302079","nombre":"CHAMPAGNE ESPUMANTE LAMBRUSCO DELLEMILIA ROSADO 750ML","unidad":""},{"codigo":"320044","nombre":"WHISKY JOHNIE ROJO 408","unidad":""},{"codigo":"302039","nombre":"WHISKY BUCHANANS 520 (700ml)","unidad":""},{"codigo":"302043","nombre":"WHISKY JHONIE BLACK LABEL 406","unidad":""},{"codigo":"302045","nombre":"WHISKY OLD PARR (505)","unidad":""},{"codigo":"302074","nombre":"TEQUILA SOMBRERO NEGRO (636)","unidad":""},{"codigo":"302005","nombre":"CAMPARI","unidad":""},{"codigo":"302058","nombre":"CINZANO","unidad":""},{"codigo":"302023","nombre":"MEDIA DE CIGARRILLO MARLBORO BLANCO","unidad":""},{"codigo":"302052","nombre":"MEDIA DE CIGARRILLO MARLBORO DOBLE CAPSULA","unidad":""},{"codigo":"302051","nombre":"MEDIA DE CIGARRILLO MARLBORO ROJO","unidad":""},{"codigo":"302057","nombre":"VINO TINTO COCINA CENTRAL 363","unidad":""},{"codigo":"302056","nombre":"VINO BLANCO COCINA CENTRAL 363","unidad":""},{"codigo":"201004","nombre":"AGUA MINERAL 3LTS","unidad":""},{"codigo":"201053","nombre":"IMPERIAL TORONJA 1.5 L","unidad":""},{"codigo":"201007","nombre":"AGUA TONICA 2 LITROS","unidad":""},{"codigo":"201040","nombre":"AGUA TONICA 3 LITROS","unidad":""},{"codigo":"105002","nombre":"AJI TABASCO 60ML","unidad":""},{"codigo":"105015","nombre":"AZUCAR BLANCA","unidad":""},{"codigo":"302061","nombre":"CAÑA MANABITA/AGUARDIENTE CRISTAL (436)","unidad":""},{"codigo":"301012","nombre":"CERVEZA CLUB VERDE 880 CC","unidad":""},{"codigo":"301011","nombre":"CERVEZA CLUB VERDE 550CC","unidad":""},{"codigo":"301007","nombre":"CERVEZA PILSENER LIGHT 1LT","unidad":""},{"codigo":"201041","nombre":"COLA SPRITE 1.35 LITROS","unidad":""},{"codigo":"201051","nombre":"GASEOSA COCA COLA 1 LITRO","unidad":""},{"codigo":"201057","nombre":"GASEOSA SPRITE 1.75 LITROS","unidad":""},{"codigo":"302084","nombre":"GIN NACIONAL (SOUTH BANK) 366 (627LIQUIDO)","unidad":""},{"codigo":"106010","nombre":"GRANADINA CEREZA","unidad":""},{"codigo":"105163","nombre":"GRANADINA DE MENTA","unidad":""},{"codigo":"1091044","nombre":"HIERBA BUENA","unidad":""},{"codigo":"105211","nombre":"JUGO DE LIMON SUCEDANEO 3.75 L","unidad":""},{"codigo":"","nombre":"JUGO SQUIZ 2 LITROS","unidad":""},{"codigo":"104007","nombre":"LECHE CONDENSADA","unidad":""},{"codigo":"105057","nombre":"LECHE DE COCO","unidad":""},{"codigo":"104009","nombre":"LECHE EVAPORADA 400ML","unidad":""},{"codigo":"302018","nombre":"LICOR DE COCO 451","unidad":""},{"codigo":"302013","nombre":"LICOR AMARETTO (451)PB","unidad":""},{"codigo":"302015","nombre":"LICOR CURACAO 750ML 451","unidad":""},{"codigo":"302016","nombre":"LICOR DE CACAO 451","unidad":""},{"codigo":"302017","nombre":"LICOR DE CAFÉ 451","unidad":""},{"codigo":"302019","nombre":"LICOR DE DURAZNO","unidad":""},{"codigo":"302021","nombre":"LICOR DE MENTA 451/379","unidad":""},{"codigo":"302022","nombre":"LICOR TRIPLE SEC 451(773 LIQUIDO)","unidad":""},{"codigo":"1091055","nombre":"LIMON TAHITI","unidad":""},{"codigo":"108018","nombre":"MARACUYA","unidad":""},{"codigo":"105068","nombre":"MILANO DE CHOCOLATE","unidad":""},{"codigo":"105069","nombre":"MILANO DE FRESA","unidad":""},{"codigo":"108020","nombre":"MORA","unidad":""},{"codigo":"108026","nombre":"PIÑAS","unidad":""},{"codigo":"302028","nombre":"RON NACIONAL(RIENDA/RIO) 525-436","unidad":""},{"codigo":"105099","nombre":"SALSA INGLESA 200ML","unidad":""},{"codigo":"105221","nombre":"TAJIN CLASICO 142G","unidad":""},{"codigo":"302030","nombre":"TEQUILA EL CHARRO 511","unidad":""},{"codigo":"302037","nombre":"VODKA NACIONAL (SIBERIAN) 582","unidad":""}]},{"codigo":"09","nombre":"DECK PARAISO","productos":[{"codigo":"201005","nombre":"AGUA MINERAL VIDRIO 300ML","unidad":""},{"codigo":"201034","nombre":"AGUA MINERAL 330ML NO RETORNABLE","unidad":""},{"codigo":"201003","nombre":"AGUA DASANI","unidad":""},{"codigo":"201022","nombre":"COCA COLA 300 ML VIDRIO","unidad":""},{"codigo":"201035","nombre":"COCA COLA ZERO","unidad":""},{"codigo":"201024","nombre":"COLA FIORA 300 ML VIDRIO","unidad":""},{"codigo":"201025","nombre":"COLA FANTA 300 ML VIDRIO","unidad":""},{"codigo":"201019","nombre":"GASEOSA SPRITE 300ML VIDRIO","unidad":""},{"codigo":"201018","nombre":"FUZE TEA 300ML RETORNABLE","unidad":""},{"codigo":"301003","nombre":"CERVEZA CORONA 330ML","unidad":""},{"codigo":"301002","nombre":"CERVEZA CLUB VERDE 330ML","unidad":""},{"codigo":"301009","nombre":"CERVEZA STELLA 330ML","unidad":""},{"codigo":"302025","nombre":"RON BACARDI (604)/463 de 700ml","unidad":""},{"codigo":"302047","nombre":"FREIXENET CARTA NEVADA","unidad":""},{"codigo":"302009","nombre":"FREIXENET CORDON NEGRO","unidad":""},{"codigo":"302046","nombre":"VINO BLANCO MARQUES DE RISCAL RUEDA","unidad":""},{"codigo":"302024","nombre":"VINO TINTO MARQUES DE RISCAL ARIENZO","unidad":""},{"codigo":"302049","nombre":"GRAN DUQUE ALBA","unidad":""},{"codigo":"302003","nombre":"BOMBAY SHAPIRE 582","unidad":""},{"codigo":"302076","nombre":"VINO CARMEN INSIGNE CHARDONAY/410","unidad":""},{"codigo":"302075","nombre":"VINO CARMEN INSIGNE MERLOT/390/380","unidad":""},{"codigo":"302079","nombre":"CHAMPAGNE ESPUMANTE LAMBRUSCO DELLEMILIA ROSADO 750ML","unidad":""},{"codigo":"320044","nombre":"WHISKY JOHNIE ROJO 408","unidad":""},{"codigo":"302039","nombre":"WHISKY BUCHANANS 520 (700ml)","unidad":""},{"codigo":"302043","nombre":"WHISKY JHONIE BLACK LABEL 406","unidad":""},{"codigo":"302045","nombre":"WHISKY OLD PARR (505)","unidad":""},{"codigo":"302074","nombre":"TEQUILA SOMBRERO NEGRO (636)","unidad":""},{"codigo":"302005","nombre":"CAMPARI","unidad":""},{"codigo":"302058","nombre":"CINZANO","unidad":""},{"codigo":"302023","nombre":"MEDIA DE CIGARRILLO MARLBORO BLANCO","unidad":""},{"codigo":"302052","nombre":"MEDIA DE CIGARRILLO MARLBORO DOBLE CAPSULA","unidad":""},{"codigo":"302051","nombre":"MEDIA DE CIGARRILLO MARLBORO ROJO","unidad":""},{"codigo":"302057","nombre":"VINO TINTO COCINA CENTRAL 363","unidad":""},{"codigo":"302056","nombre":"VINO BLANCO COCINA CENTRAL 363","unidad":""},{"codigo":"201004","nombre":"AGUA MINERAL 3LTS","unidad":""},{"codigo":"201053","nombre":"AGUA MINERAL DE TORONJA","unidad":""},{"codigo":"201007","nombre":"AGUA TONICA 2 LITROS","unidad":""},{"codigo":"201040","nombre":"AGUA TONICA 3 LITROS","unidad":""},{"codigo":"105002","nombre":"AJI TABASCO 60ML","unidad":""},{"codigo":"105015","nombre":"AZUCAR BLANCA","unidad":""},{"codigo":"302061","nombre":"CAÑA MANABITA/AGUARDIENTE CRISTAL (436)","unidad":""},{"codigo":"301012","nombre":"CERVEZA CLUB VERDE 550 CC","unidad":""},{"codigo":"301011","nombre":"CERVEZA CLUB VERDE 850CC","unidad":""},{"codigo":"301007","nombre":"CERVEZA PILSENER LIGHT 1LT","unidad":""},{"codigo":"201041","nombre":"COLA SPRITE 1.35 LITROS","unidad":""},{"codigo":"201051","nombre":"GASEOSA COCA COLA 1 LITRO","unidad":""},{"codigo":"201057","nombre":"GASEOSA SPRITE 1.75 LITROS","unidad":""},{"codigo":"302084","nombre":"GIN NACIONAL (SOUTH BANK) 366 (627LIQUIDO)","unidad":""},{"codigo":"106010","nombre":"GRANADINA CEREZA","unidad":""},{"codigo":"105163","nombre":"GRANADINA DE MENTA","unidad":""},{"codigo":"1091044","nombre":"HIERBA BUENA","unidad":""},{"codigo":"105211","nombre":"JUGO DE LIMON SUCEDANEO 3.75 L","unidad":""},{"codigo":"104007","nombre":"LECHE CONDENSADA","unidad":""},{"codigo":"105057","nombre":"LECHE DE COCO","unidad":""},{"codigo":"104009","nombre":"LECHE EVAPORADA 400ML","unidad":""},{"codigo":"302018","nombre":"LICOR DE COCO 451","unidad":""},{"codigo":"302013","nombre":"LICOR AMARETTO (451)PB","unidad":""},{"codigo":"302015","nombre":"LICOR CURACAO 750ML 451","unidad":""},{"codigo":"302016","nombre":"LICOR DE CACAO 451","unidad":""},{"codigo":"302017","nombre":"LICOR DE CAFÉ 451","unidad":""},{"codigo":"302019","nombre":"LICOR DE DURAZNO","unidad":""},{"codigo":"302021","nombre":"LICOR DE MENTA 451/379","unidad":""},{"codigo":"302022","nombre":"LICOR TRIPLE SEC 451(773 LIQUIDO)","unidad":""},{"codigo":"1091055","nombre":"LIMON TAHITI","unidad":""},{"codigo":"108018","nombre":"MARACUYA","unidad":""},{"codigo":"105068","nombre":"MILANO DE CHOCOLATE","unidad":""},{"codigo":"105069","nombre":"MILANO DE FRESA","unidad":""},{"codigo":"108020","nombre":"MORA","unidad":""},{"codigo":"108026","nombre":"PIÑAS","unidad":""},{"codigo":"302028","nombre":"RON NACIONAL(RIENDA/RIO) 525-436","unidad":""},{"codigo":"105099","nombre":"SALSA INGLESA 200ML","unidad":""},{"codigo":"105221","nombre":"TAJIN CLASICO 142G","unidad":""},{"codigo":"302030","nombre":"TEQUILA EL CHARRO 511","unidad":""},{"codigo":"302037","nombre":"VODKA NACIONAL (SIBERIAN) 582","unidad":""}]},{"codigo":"10","nombre":"PLAZA PARAISO","productos":[{"codigo":"104008","nombre":"LECHE ENTERA","unidad":""},{"codigo":"104027","nombre":"YOGURT DURAZNO","unidad":""},{"codigo":"104027","nombre":"YOGURT FRUTILLA","unidad":""},{"codigo":"104029","nombre":"YOGURT DE MORA","unidad":""},{"codigo":"104058","nombre":"YOGURT NARANJILLA","unidad":""},{"codigo":"201004","nombre":"AGUA MINERAL 3LTS","unidad":""},{"codigo":"301007","nombre":"CERVEZA PILSENER LIGHT 1LT","unidad":""},{"codigo":"301011","nombre":"CERVEZA CLUB VERDE 850CC","unidad":""},{"codigo":"301012","nombre":"CERVEZA CLUB VERDE 550CC","unidad":""},{"codigo":"302016","nombre":"LICOR DE CACAO 451","unidad":""},{"codigo":"302018","nombre":"LICOR DE COCO 451","unidad":""},{"codigo":"302021","nombre":"LICOR DE MENTA 451/379","unidad":""},{"codigo":"302022","nombre":"TRIPLE SEC 451(773 LIQUIDO)","unidad":""},{"codigo":"302028","nombre":"RON NACIONAL(RIENDA/RIO) 525-436","unidad":""},{"codigo":"302037","nombre":"VODKA NACIONAL (SIBERIAN) 582","unidad":""},{"codigo":"302084","nombre":"GIN NACIONAL (SOUTH BANK) 366 (627LIQUIDO)","unidad":""}]},{"codigo":"15","nombre":"BAR VILLAMAR","productos":[{"codigo":"106010","nombre":"GRANADINA CEREZA 0,451","unidad":""},{"codigo":"201002","nombre":"AGUA BOTELLON 20LTS","unidad":""},{"codigo":"201003","nombre":"AGUA DASANI","unidad":""},{"codigo":"201005","nombre":"AGUA MINERAL VIDRIO 300ML","unidad":""},{"codigo":"201011","nombre":"GASEOSA COCACOLA 500ML","unidad":""},{"codigo":"201012","nombre":"GASEOSA COCACOLA LIGHT 500ML","unidad":""},{"codigo":"201018","nombre":"FUZE TEA 300ML RETORNABLE","unidad":""},{"codigo":"201019","nombre":"GASEOSA SPRITE 300ML VIDRIO","unidad":""},{"codigo":"201022","nombre":"COCA COLA 300 ML VIDRIO","unidad":""},{"codigo":"201024","nombre":"COLA FIORA 300 ML VIDRIO","unidad":""},{"codigo":"201025","nombre":"COLA FANTA 300 ML VIDRIO","unidad":""},{"codigo":"201034","nombre":"AGUA MINERAL 330ML NO RETORNABLE","unidad":""},{"codigo":"201067","nombre":"GASEOSA COCA COLA ZERO 500ML","unidad":""},{"codigo":"201068","nombre":"GASEOSA FANTA 500ML","unidad":""},{"codigo":"201069","nombre":"GASEOSA SPRITE 500ML","unidad":""},{"codigo":"301002","nombre":"CERVEZA CLUB VERDE 330ML","unidad":""},{"codigo":"301003","nombre":"CERVEZA CORONA 330ML","unidad":""},{"codigo":"301007","nombre":"CERVEZA PILSENER LIGHT 1LT","unidad":""},{"codigo":"301008","nombre":"CERVEZA PILSENER LIGHT 330ML","unidad":""},{"codigo":"301009","nombre":"CERVEZA STELLA 330ML","unidad":""},{"codigo":"301011","nombre":"CERVEZA CLUB VERDE 850CC","unidad":""},{"codigo":"302003","nombre":"BOMBAY SHAPIRE","unidad":""},{"codigo":"302005","nombre":"CAMPARI","unidad":""},{"codigo":"302009","nombre":"FREIXENET CORDON NEGRO","unidad":""},{"codigo":"302011","nombre":"GINEBRA TANQUERAY","unidad":""},{"codigo":"302013","nombre":"LICOR AMARETTO 0,451","unidad":""},{"codigo":"302015","nombre":"LICOR CURACAO 750ML 0,451","unidad":""},{"codigo":"302016","nombre":"LICOR DE CACAO 451","unidad":""},{"codigo":"302018","nombre":"LICOR DE COCO 451","unidad":""},{"codigo":"302019","nombre":"LICOR DE DURAZNO 0,451","unidad":""},{"codigo":"302021","nombre":"LICOR DE MENTA 451/379","unidad":""},{"codigo":"302022","nombre":"TRIPLE SEC 451(773 LIQUIDO)","unidad":""},{"codigo":"302024","nombre":"VINO TINTO MARQUES DE RISCAL ARIENZO 0,465","unidad":""},{"codigo":"302025","nombre":"RON BACARDI 0,473","unidad":""},{"codigo":"302028","nombre":"RON NACIONAL(RIENDA/RIO)","unidad":""},{"codigo":"302032","nombre":"VINO BLANCO CARMEN SAUVIGNON","unidad":""},{"codigo":"302035","nombre":"VINO TINTO CARMEN SAUVIGNON 0,357","unidad":""},{"codigo":"302037","nombre":"VODKA NACIONAL (SIBERIAN) 0,555","unidad":""},{"codigo":"302038","nombre":"VODKA ABSOLUTE 0,500","unidad":""},{"codigo":"302039","nombre":"WHISKY BUCHANANS 0,520","unidad":""},{"codigo":"302045","nombre":"WHISKY OLD PARR 0,520","unidad":""},{"codigo":"302046","nombre":"VINO BLANCO MARQUES DE RISCAL RUEDA","unidad":""},{"codigo":"302047","nombre":"FREIXENET CARTA NEVADA","unidad":""},{"codigo":"302049","nombre":"GRAN DUQUE DE ALBA 0,867","unidad":""},{"codigo":"302050","nombre":"WHISKY BLACK LABEL 0,359","unidad":""},{"codigo":"302058","nombre":"VERMOUTH CINZANO 0.566","unidad":""},{"codigo":"302060","nombre":"PISCO OCUCAJE 0.480","unidad":""},{"codigo":"302061","nombre":"CAÑA MANABITA/AGUARDIENTE CRISTAL 0,355","unidad":""},{"codigo":"302074","nombre":"TEQUILA SOMBRERO NEGRO 0,640","unidad":""},{"codigo":"302075","nombre":"VINO CARMEN INSIGNE MERLOT 0,390","unidad":""},{"codigo":"302076","nombre":"VINO CARMEN INSIGNE CHARDONAY 0,411","unidad":""},{"codigo":"320044","nombre":"WHISKY JOHNIE ROJO 0,392","unidad":""},{"codigo":"","nombre":"VINO TINTO GOMEZ AGUIRRE","unidad":""}]},{"codigo":"16","nombre":"SUNSET BAR SUMINISTROS","productos":[{"codigo":"201005","nombre":"AGUA MINERAL VIDRIO 300ML","unidad":""},{"codigo":"201034","nombre":"AGUA MINERAL 330ML NO RETORNABLE","unidad":""},{"codigo":"201003","nombre":"AGUA DASANI","unidad":""},{"codigo":"201022","nombre":"COCA COLA 300 ML VIDRIO","unidad":""},{"codigo":"201035","nombre":"COCA COLA ZERO","unidad":""},{"codigo":"201024","nombre":"COLA FIORA 300 ML VIDRIO","unidad":""},{"codigo":"201025","nombre":"COLA FANTA 300 ML VIDRIO","unidad":""},{"codigo":"201019","nombre":"GASEOSA SPRITE 300ML VIDRIO","unidad":""},{"codigo":"201018","nombre":"FUZE TEA 300ML RETORNABLE","unidad":""},{"codigo":"301003","nombre":"CERVEZA CORONA 330ML","unidad":""},{"codigo":"301002","nombre":"CERVEZA CLUB VERDE 330ML","unidad":""},{"codigo":"301009","nombre":"CERVEZA STELLA 330ML","unidad":""},{"codigo":"302025","nombre":"RON BACARDI (604)/463 de 700ml","unidad":""},{"codigo":"302047","nombre":"FREIXENET CARTA NEVADA","unidad":""},{"codigo":"302009","nombre":"FREIXENET CORDON NEGRO","unidad":""},{"codigo":"302046","nombre":"VINO BLANCO MARQUES DE RISCAL RUEDA","unidad":""},{"codigo":"302024","nombre":"VINO TINTO MARQUES DE RISCAL ARIENZO","unidad":""},{"codigo":"302049","nombre":"GRAN DUQUE ALBA","unidad":""},{"codigo":"302003","nombre":"BOMBAY SHAPIRE 582","unidad":""},{"codigo":"302076","nombre":"VINO CARMEN INSIGNE CHARDONAY/410","unidad":""},{"codigo":"302075","nombre":"VINO CARMEN INSIGNE MERLOT/390/380","unidad":""},{"codigo":"302079","nombre":"CHAMPAGNE ESPUMANTE LAMBRUSCO DELLEMILIA ROSADO 750ML","unidad":""},{"codigo":"320044","nombre":"WHISKY JOHNIE ROJO 408","unidad":""},{"codigo":"302039","nombre":"WHISKY BUCHANANS 520 (700ml)","unidad":""},{"codigo":"302043","nombre":"WHISKY JHONIE BLACK LABEL 406","unidad":""},{"codigo":"302045","nombre":"WHISKY OLD PARR (505)","unidad":""},{"codigo":"302074","nombre":"TEQUILA SOMBRERO NEGRO (636)","unidad":""},{"codigo":"302005","nombre":"CAMPARI","unidad":""},{"codigo":"302058","nombre":"CINZANO","unidad":""},{"codigo":"302023","nombre":"MEDIA DE CIGARRILLO MARLBORO BLANCO","unidad":""},{"codigo":"302052","nombre":"MEDIA DE CIGARRILLO MARLBORO DOBLE CAPSULA","unidad":""},{"codigo":"302051","nombre":"MEDIA DE CIGARRILLO MARLBORO ROJO","unidad":""},{"codigo":"302057","nombre":"VINO TINTO COCINA CENTRAL 363","unidad":""},{"codigo":"302056","nombre":"VINO BLANCO COCINA CENTRAL 363","unidad":""},{"codigo":"201004","nombre":"AGUA MINERAL 3LTS","unidad":""},{"codigo":"201053","nombre":"AGUA MINERAL DE TORONJA","unidad":""},{"codigo":"201007","nombre":"AGUA TONICA 2 LITROS","unidad":""},{"codigo":"201040","nombre":"AGUA TONICA 3 LITROS","unidad":""},{"codigo":"105002","nombre":"AJI TABASCO 60ML","unidad":""},{"codigo":"105015","nombre":"AZUCAR BLANCA","unidad":""},{"codigo":"302061","nombre":"CAÑA MANABITA/AGUARDIENTE CRISTAL (436)","unidad":""},{"codigo":"301012","nombre":"CERVEZA CLUB VERDE 550 CC","unidad":""},{"codigo":"301011","nombre":"CERVEZA CLUB VERDE 850CC","unidad":""},{"codigo":"301007","nombre":"CERVEZA PILSENER LIGHT 1LT","unidad":""},{"codigo":"201041","nombre":"COLA SPRITE 1.35 LITROS","unidad":""},{"codigo":"201051","nombre":"GASEOSA COCA COLA 1 LITRO","unidad":""},{"codigo":"201057","nombre":"GASEOSA SPRITE 1.75 LITROS","unidad":""},{"codigo":"302084","nombre":"GIN NACIONAL (SOUTH BANK) 366 (627LIQUIDO)","unidad":""},{"codigo":"106010","nombre":"GRANADINA CEREZA","unidad":""},{"codigo":"105163","nombre":"GRANADINA DE MENTA","unidad":""},{"codigo":"1091044","nombre":"HIERBA BUENA","unidad":""},{"codigo":"105211","nombre":"JUGO DE LIMON SUCEDANEO 3.75 L","unidad":""},{"codigo":"104007","nombre":"LECHE CONDENSADA","unidad":""},{"codigo":"105057","nombre":"LECHE DE COCO","unidad":""},{"codigo":"104009","nombre":"LECHE EVAPORADA 400ML","unidad":""},{"codigo":"302018","nombre":"LICOR DE COCO 451","unidad":""},{"codigo":"302013","nombre":"LICOR AMARETTO (451)PB","unidad":""},{"codigo":"302015","nombre":"LICOR CURACAO 750ML 451","unidad":""},{"codigo":"302016","nombre":"LICOR DE CACAO 451","unidad":""},{"codigo":"302017","nombre":"LICOR DE CAFÉ 451","unidad":""},{"codigo":"302019","nombre":"LICOR DE DURAZNO","unidad":""},{"codigo":"302021","nombre":"LICOR DE MENTA 451/379","unidad":""},{"codigo":"302022","nombre":"LICOR TRIPLE SEC 451(773 LIQUIDO)","unidad":""},{"codigo":"1091055","nombre":"LIMON TAHITI","unidad":""},{"codigo":"108018","nombre":"MARACUYA","unidad":""},{"codigo":"105068","nombre":"MILANO DE CHOCOLATE","unidad":""},{"codigo":"105069","nombre":"MILANO DE FRESA","unidad":""},{"codigo":"108020","nombre":"MORA","unidad":""},{"codigo":"108026","nombre":"PIÑAS","unidad":""},{"codigo":"302028","nombre":"RON NACIONAL(RIENDA/RIO) 525-436","unidad":""},{"codigo":"105099","nombre":"SALSA INGLESA 200ML","unidad":""},{"codigo":"105221","nombre":"TAJIN CLASICO 142G","unidad":""},{"codigo":"302030","nombre":"TEQUILA EL CHARRO 511","unidad":""},{"codigo":"302037","nombre":"VODKA NACIONAL (SIBERIAN) 582","unidad":""}]}];
+let INV_CFG = {version:1, bodegas:[], accesos:{}};
+const inventarioBodegasDe = u => !u ? [] : (esGD(u) ? (INV_CFG.bodegas||[]).map(b=>b.codigo)
+  : ((INV_CFG.accesos && INV_CFG.accesos[u.nombre]) || []));
+function invBodega(codigo){ return (INV_CFG.bodegas||[]).find(b=>b.codigo===codigo); }
+async function invCfgRead(){ let c; try{ c=await Store.read("Inventario_Config"); }catch{ c=null; }
+  if(!c || Array.isArray(c)) return null; return c; }
+async function invCfgSave(){ await Store.write("Inventario_Config", INV_CFG); }
+function applyInvConfig(cfg){ if(!cfg) return;
+  if(Array.isArray(cfg.bodegas)) INV_CFG.bodegas=cfg.bodegas;
+  if(cfg.accesos) INV_CFG.accesos=cfg.accesos; }
+
+function invComputeConsumo(it){ const ini=+it.inicial||0, tp=+it.tp||0, tn=+it.tn||0, me=+it.merma||0;
+  const fin = it.final===null||it.final===""||it.final===undefined ? null : +it.final;
+  if(fin===null) return null;
+  return ini+tp-tn-me-fin; }
+function invFmt(n){ if(n===null||n===undefined||n==="") return "—";
+  const v=+n; if(isNaN(v)) return "—"; return (Math.round(v*100)/100).toString(); }
+
+async function invRegistrosDe(codigo){
+  const all = await Store.read("Inventario");
+  return all.filter(r=>r.bodega===codigo).sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
+}
+/* Abre (o recupera) el registro de HOY para una bodega. Si no existe, lo crea
+   llevando el "Cantidad final" del último día CERRADO como "Inicial" de cada
+   producto — la misma regla que ya usan en la Bitácora de Excel: el inventario
+   final de un día es el inicial (el real consumido) del día siguiente. */
+async function invAbrirHoy(codigo, user){
+  const hoy = hoyISO();
+  const regs = await invRegistrosDe(codigo);
+  const deHoy = regs.find(r=>r.fecha===hoy);
+  if(deHoy) return deHoy;
+  const bod = invBodega(codigo);
+  const ultimoCerrado = regs.find(r=>r.cerrado);
+  const base = (bod && bod.productos) || [];
+  const items = base.map(p=>{
+    const prev = ultimoCerrado && (ultimoCerrado.items||[]).find(x=>x.codigo===p.codigo);
+    return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? (+prev.final||0) : 0, tp:0, tn:0, merma:0, final:null};
+  });
+  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha:hoy, responsable:"",
+    items, cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
+  await Store.writeOne("Inventario", rec);
+  return rec;
+}
+
+/* ===== Pantalla: Cierre del día ===== */
+function InventarioCierre({user,toast}){
+  const bodegas = (INV_CFG.bodegas||[]).filter(b=>inventarioBodegasDe(user).includes(b.codigo));
+  const [codigo,setCodigo]=useState(bodegas[0]?bodegas[0].codigo:"");
+  const [rec,setRec]=useState(null);
+  const [cargando,setCargando]=useState(true);
+  const [q,setQ]=useState("");
+  const [guardando,setGuardando]=useState(false);
+  useEffect(()=>{ if(!codigo){ setCargando(false); return; }
+    setCargando(true);
+    invAbrirHoy(codigo,user).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
+      .catch(e=>{ toast("No se pudo abrir el inventario de hoy: "+(e.message||e)); setCargando(false); });
+  },[codigo]);
+  if(!bodegas.length) return <div className="empty"><div className="e"><Icon name="box" size={44}/></div>
+    Todavía no tienes bodegas asignadas para el inventario.<br/>Pide al Desarrollador que te las asigne en Inventario · Configurar.</div>;
+  if(cargando) return <div className="empty">Cargando…</div>;
+  if(!rec) return null;
+  function setItem(i,patch){ setRec(r=>{ const items=r.items.slice(); items[i]={...items[i],...patch}; return {...r,items}; }); }
+  const filtrados = rec.items.map((it,i)=>({it,i})).filter(({it})=> !q.trim() ||
+    (it.nombre+" "+it.codigo).toLowerCase().indexOf(q.trim().toLowerCase())>-1);
+  async function guardar(cerrar){
+    if(cerrar && !rec.responsable.trim()){ toast("Falta el nombre del responsable."); return; }
+    const faltantes = rec.items.filter(it=>it.final===null||it.final==="").length;
+    if(cerrar && faltantes>0){ if(!window.confirm(`${faltantes} producto(s) sin "Cantidad final". ¿Cerrar de todas formas?`)) return; }
+    setGuardando(true);
+    try{
+      const toSave = {...rec, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn};
+      await Store.writeOne("Inventario", toSave);
+      setRec(toSave);
+      toast(cerrar?"Inventario del día cerrado.":"Guardado.");
+    }catch(e){ toast("No se pudo guardar: "+(e.message||e)); }
+    setGuardando(false);
+  }
+  return <div>
+    {bodegas.length>1 && <Field label="Bodega"><select className="inp" value={codigo} onChange={e=>setCodigo(e.target.value)}>
+      {bodegas.map(b=><option key={b.codigo} value={b.codigo}>{b.nombre}</option>)}</select></Field>}
+    <div className="card" style={{marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div><b>{rec.bodegaNombre}</b><div className="meta">{fmtDT(rec.fecha+"T00:00:00")==="—"?rec.fecha:rec.fecha}</div></div>
+        {rec.cerrado
+          ? <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}><Icon name="lock" size={13} style={{marginRight:4}}/>Cerrado por {rec.cerradoPor}</span>
+          : <span className="pill" style={{background:"#fff3d6",color:"#8a6512"}}>Sin cerrar</span>}
+      </div>
+    </div>
+    {rec.cerrado
+      ? <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega. Puedes verlo en la pestaña Historial. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>
+      : <Field label="Responsable del conteo" req><input className="inp" value={rec.responsable} placeholder="Nombre de quien cuenta"
+          onChange={e=>setRec(r=>({...r,responsable:e.target.value}))}/></Field>}
+    <div style={{maxWidth:340,marginBottom:10}}><input type="text" className="inp" placeholder="Buscar producto o código…"
+      value={q} onChange={e=>setQ(e.target.value)}/></div>
+    <div style={{display:"flex",fontSize:11.5,fontWeight:700,color:"var(--muted)",padding:"0 4px",marginBottom:4}}>
+      <div style={{flex:"1 1 auto"}}>Producto</div>
+      <div style={{width:56,textAlign:"right"}}>Inicial</div>
+      <div style={{width:56,textAlign:"right"}}>Trasl.+</div>
+      <div style={{width:56,textAlign:"right"}}>Trasl.−</div>
+      <div style={{width:56,textAlign:"right"}}>Merma</div>
+      <div style={{width:64,textAlign:"right"}}>Final</div>
+      <div style={{width:64,textAlign:"right"}}>Consumo</div>
+    </div>
+    {filtrados.map(({it,i})=>{ const cons=invComputeConsumo(it);
+      return <div key={it.codigo} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
+        <div style={{flex:"1 1 auto",minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}</div>
+          <div className="meta">#{it.codigo}</div>
+        </div>
+        <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.inicial)}</div>
+        {rec.cerrado ? <>
+          <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.tp)}</div>
+          <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.tn)}</div>
+          <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.merma)}</div>
+          <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700}}>{invFmt(it.final)}</div>
+        </> : <>
+          <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
+            value={it.tp||""} onChange={e=>setItem(i,{tp:e.target.value===""?0:+e.target.value})}/>
+          <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
+            value={it.tn||""} onChange={e=>setItem(i,{tn:e.target.value===""?0:+e.target.value})}/>
+          <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
+            value={it.merma||""} onChange={e=>setItem(i,{merma:e.target.value===""?0:+e.target.value})}/>
+          <input className="inp" type="number" inputMode="decimal" style={{width:64,textAlign:"right",padding:"5px 6px",fontWeight:700}}
+            value={it.final===null?"":it.final} onChange={e=>setItem(i,{final:e.target.value===""?null:+e.target.value})}/>
+        </>}
+        <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700,color:"var(--ocean-d)"}}>{invFmt(cons)}</div>
+      </div>; })}
+    {!filtrados.length && <div className="empty">Ningún producto coincide con la búsqueda.</div>}
+    {!rec.cerrado && <div className="row" style={{marginTop:14,gap:10}}>
+      <button className="btn ghost block" disabled={guardando} onClick={()=>guardar(false)}><Icon name="save" size={15} style={{marginRight:6}}/>Guardar avance</button>
+      <button className="btn primary block" disabled={guardando} onClick={()=>guardar(true)}><Icon name="lock" size={15} style={{marginRight:6}}/>Cerrar inventario del día</button>
+    </div>}
+  </div>;
+}
+
+/* ===== Pantalla: Historial ===== */
+function InventarioHistorial({user}){
+  const bodegas = (INV_CFG.bodegas||[]).filter(b=>inventarioBodegasDe(user).includes(b.codigo));
+  const [codigo,setCodigo]=useState(bodegas[0]?bodegas[0].codigo:"");
+  const [regs,setRegs]=useState([]);
+  const [ver,setVer]=useState(null);
+  const [cargando,setCargando]=useState(true);
+  useEffect(()=>{ if(!codigo){ setCargando(false); return; } setCargando(true);
+    invRegistrosDe(codigo).then(r=>{ setRegs(r.filter(x=>x.cerrado)); setCargando(false); }).catch(()=>setCargando(false)); },[codigo]);
+  if(!bodegas.length) return <div className="empty">No tienes bodegas asignadas.</div>;
+  return <div>
+    {bodegas.length>1 && <Field label="Bodega"><select className="inp" value={codigo} onChange={e=>setCodigo(e.target.value)}>
+      {bodegas.map(b=><option key={b.codigo} value={b.codigo}>{b.nombre}</option>)}</select></Field>}
+    {cargando && <div className="empty">Cargando…</div>}
+    {!cargando && !regs.length && <div className="empty"><div className="e"><Icon name="calendar" size={44}/></div>Aún no hay días cerrados para esta bodega.</div>}
+    {regs.map(r=><div key={r.id} className="item" style={{cursor:"pointer"}} onClick={()=>setVer(r)}>
+      <div style={{display:"flex",justifyContent:"space-between"}}><b>{r.fecha}</b>
+        <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Cerrado</span></div>
+      <div className="meta">Responsable: {r.responsable||"—"} · cerrado por {r.cerradoPor} · {fmtDT(r.cerradoEn)}</div>
+    </div>)}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)}><InventarioDetalle r={ver}/></Modal>}
+  </div>;
+}
+function InventarioDetalle({r}){
+  const [q,setQ]=useState("");
+  const items=(r.items||[]).filter(it=>!q.trim()||(it.nombre+" "+it.codigo).toLowerCase().indexOf(q.trim().toLowerCase())>-1);
+  return <div>
+    <div className="meta" style={{marginBottom:8}}>Responsable: {r.responsable||"—"} · cerrado por {r.cerradoPor} el {fmtDT(r.cerradoEn)}</div>
+    <input type="text" className="inp" placeholder="Buscar producto o código…" value={q} onChange={e=>setQ(e.target.value)} style={{marginBottom:10}}/>
+    <div style={{maxHeight:420,overflowY:"auto"}}>
+      {items.map(it=><div key={it.codigo} style={{display:"flex",justifyContent:"space-between",padding:"7px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
+        <div style={{flex:"1 1 auto",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}</div>
+        <div style={{width:130,textAlign:"right",flex:"0 0 auto"}}>Final <b>{invFmt(it.final)}</b> · Cons. <b>{invFmt(invComputeConsumo(it))}</b></div>
+      </div>)}
+      {!items.length && <div className="empty">Ningún producto coincide.</div>}
+    </div>
+  </div>;
+}
+
+/* ===== Pantalla: Resumen Gerencial (solo Gerencia/Desarrollador) =====
+   Responde directamente a "cómo quedó el inventario del día anterior":
+   una fila por bodega con el último cierre, quién lo hizo y cuándo. */
+function InventarioResumen(){
+  const [filas,setFilas]=useState(null);
+  const [ver,setVer]=useState(null);
+  useEffect(()=>{ (async()=>{
+    const bodegas=INV_CFG.bodegas||[];
+    const out=[];
+    for(const b of bodegas){
+      const regs=await invRegistrosDe(b.codigo);
+      const ultimo=regs.find(r=>r.cerrado)||null;
+      const hoy=regs.find(r=>r.fecha===hoyISO());
+      out.push({bodega:b, ultimo, cerradoHoy: !!(hoy&&hoy.cerrado)});
+    }
+    setFilas(out);
+  })(); },[]);
+  if(!filas) return <div className="empty">Cargando…</div>;
+  if(!filas.length) return <div className="empty">Todavía no hay bodegas configuradas. Ve a Inventario · Configurar.</div>;
+  return <div>
+    <p className="sub">Último cierre registrado por bodega.</p>
+    {filas.map(f=>{ const atrasado = !f.ultimo || sumaDiasYMD(hoyISO(),0) > sumaDiasYMD(f.ultimo.fecha,1);
+      return <div key={f.bodega.codigo} className="item">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+          <b>{f.bodega.nombre}</b>
+          {f.cerradoHoy && <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Hoy ya cerró</span>}
+          {!f.cerradoHoy && f.ultimo && <span className="pill" style={{background:"#fff3d6",color:"#8a6512"}}>Hoy: pendiente</span>}
+          {!f.ultimo && <span className="pill" style={{background:"#fbe6e6",color:"#a83232"}}>Sin registros aún</span>}
+        </div>
+        {f.ultimo ? <div className="meta" style={{marginTop:4}}>
+            Último cierre: <b>{f.ultimo.fecha}</b> · responsable {f.ultimo.responsable||"—"} · {fmtDT(f.ultimo.cerradoEn)}
+            {" "}· <span style={{cursor:"pointer",color:"var(--ocean-d)",fontWeight:700}} onClick={()=>setVer(f.ultimo)}>ver detalle</span>
+          </div>
+          : <div className="meta" style={{marginTop:4}}>Nadie ha cerrado un inventario todavía en esta bodega.</div>}
+      </div>; })}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)}><InventarioDetalle r={ver}/></Modal>}
+  </div>;
+}
+
+/* ===== Pantalla: Configurar (solo Desarrollador) ===== */
+function InventarioConfig({user,toast}){
+  const [,force]=useState(0); const re=()=>force(x=>x+1);
+  const [nuevaBodega,setNuevaBodega]=useState("");
+  const [nuevoCodBodega,setNuevoCodBodega]=useState("");
+  async function guardar(){ try{ await invCfgSave(); toast("Configuración de Inventario guardada."); }
+    catch(e){ toast("No se pudo guardar: "+(e.message||e)); } }
+  function addBodega(){ const nombre=nuevaBodega.trim(); const cod=nuevoCodBodega.trim();
+    if(!nombre||!cod){ toast("Falta código o nombre de la bodega."); return; }
+    if((INV_CFG.bodegas||[]).some(b=>b.codigo===cod)){ toast("Ya existe una bodega con ese código."); return; }
+    INV_CFG.bodegas=[...(INV_CFG.bodegas||[]),{codigo:cod,nombre,productos:[]}];
+    setNuevaBodega(""); setNuevoCodBodega(""); re(); guardar(); }
+  function delBodega(cod){ if(!window.confirm("¿Eliminar esta bodega y su catálogo de productos?")) return;
+    INV_CFG.bodegas=(INV_CFG.bodegas||[]).filter(b=>b.codigo!==cod); re(); guardar(); }
+  const colabs = USERS.filter(u=>u.rol==='colaborador'||u.rol==='aprobador');
+  function toggleAcceso(nombre,cod){ INV_CFG.accesos=INV_CFG.accesos||{};
+    const arr=INV_CFG.accesos[nombre]||[];
+    INV_CFG.accesos[nombre] = arr.includes(cod) ? arr.filter(c=>c!==cod) : [...arr,cod];
+    re(); guardar(); }
+  return <div>
+    <h3 style={{marginTop:0}}>Bodegas</h3>
+    <div className="row" style={{gap:8,marginBottom:10}}>
+      <input className="inp" style={{maxWidth:110}} placeholder="Código" value={nuevoCodBodega} onChange={e=>setNuevoCodBodega(e.target.value)}/>
+      <input className="inp" placeholder="Nombre de la bodega" value={nuevaBodega} onChange={e=>setNuevaBodega(e.target.value)}/>
+      <button className="btn primary" onClick={addBodega}><Icon name="plus" size={15}/></button>
+    </div>
+    {(INV_CFG.bodegas||[]).map(b=><InventarioConfigBodega key={b.codigo} b={b} toast={toast} onSave={guardar} onDel={()=>delBodega(b.codigo)} onChange={re}/>)}
+    {!(INV_CFG.bodegas||[]).length && <div className="empty">Todavía no hay bodegas. Agrega la primera arriba.</div>}
+    <h3>Quién puede llenar cada bodega</h3>
+    <p className="hint" style={{marginBottom:10}}>Gerencia y Desarrollador siempre ven todas las bodegas (Resumen Gerencial). Aquí asignas a colaboradores y jefaturas qué bodega les toca contar.</p>
+    {(INV_CFG.bodegas||[]).map(b=><div key={b.codigo} className="card" style={{marginBottom:10}}>
+      <b>{b.nombre}</b>
+      <div className="fgrid" style={{marginTop:8}}>{colabs.map(u=>{ const on=((INV_CFG.accesos&&INV_CFG.accesos[u.nombre])||[]).includes(b.codigo);
+        return <span key={u.id} className="pill" style={{cursor:"pointer",background:on?"#e6f2f3":"#f1f3f3",color:on?"var(--ocean-d)":"var(--muted)"}}
+          onClick={()=>toggleAcceso(u.nombre,b.codigo)}>{on?"✓ ":""}{u.nombre}</span>; })}</div>
+      {!colabs.length && <div className="hint">No hay colaboradores/jefaturas cargados todavía.</div>}
+    </div>)}
+  </div>;
+}
+function InventarioConfigBodega({b,toast,onSave,onDel,onChange}){
+  const [cod,setCod]=useState(""); const [nom,setNom]=useState(""); const [abierto,setAbierto]=useState(false);
+  function addProd(){ const c=cod.trim(), n=nom.trim(); if(!c||!n){ toast("Falta código o nombre del producto."); return; }
+    if((b.productos||[]).some(p=>p.codigo===c)){ toast("Ya existe un producto con ese código en esta bodega."); return; }
+    b.productos=[...(b.productos||[]),{codigo:c,nombre:n,unidad:""}]; setCod(""); setNom(""); onChange(); onSave(); }
+  function delProd(c){ b.productos=(b.productos||[]).filter(p=>p.codigo!==c); onChange(); onSave(); }
+  return <div className="card" style={{marginBottom:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setAbierto(!abierto)}>
+      <div><b>{b.nombre}</b> <span className="meta">#{b.codigo} · {(b.productos||[]).length} producto(s)</span></div>
+      <div style={{display:"flex",gap:6}}>
+        <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={e=>{e.stopPropagation();onDel();}}><Icon name="trash" size={15}/></button>
+        <Icon name={abierto?"chevronUp":"chevronDown"} size={18}/>
+      </div>
+    </div>
+    {abierto && <div style={{marginTop:10}}>
+      <div className="row" style={{gap:8,marginBottom:8}}>
+        <input className="inp" style={{maxWidth:110}} placeholder="Código" value={cod} onChange={e=>setCod(e.target.value)}/>
+        <input className="inp" placeholder="Nombre del producto" value={nom} onChange={e=>setNom(e.target.value)}/>
+        <button className="btn primary" onClick={addProd}><Icon name="plus" size={15}/></button>
+      </div>
+      <div style={{maxHeight:260,overflowY:"auto"}}>
+        {(b.productos||[]).map(p=><div key={p.codigo} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
+          <div>{p.nombre} <span className="meta">#{p.codigo}</span></div>
+          <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(p.codigo)}><Icon name="trash" size={13}/></button>
+        </div>)}
+        {!(b.productos||[]).length && <div className="empty">Sin productos todavía.</div>}
+      </div>
+    </div>}
+  </div>;
+}
+
+/* ===== Módulo Inventario: contenedor con pestañas ===== */
+function Inventario({user,toast}){
+  const esGer = user.rol==='gerencia';
+  const propias = inventarioBodegasDe(user);
+  const showCierre = !esGer && propias.length>0;
+  const showHistorial = !esGer && propias.length>0;
+  const showResumen = esGD(user);
+  const showConf = esDev(user);
+  const [tab,setTab]=useState(showCierre?"cierre":showResumen?"resumen":showHistorial?"historial":"conf");
+  const sinNada = !showCierre && !showHistorial && !showResumen && !showConf;
+  return <div>
+    <h1 className="h1">Inventario A&B</h1>
+    <p className="sub">Cierre diario de bodegas y consumo real.</p>
+    {sinNada && <div className="empty"><div className="e"><Icon name="box" size={44}/></div>
+      Todavía no tienes ninguna bodega asignada.<br/>Pide al Desarrollador que entre con PIN 9999 → Inventario → Configurar, y te asigne una bodega ahí.</div>}
+    {!sinNada && <div className="seg">
+      {showCierre && <button className={tab==="cierre"?"on":""} onClick={()=>setTab("cierre")}>Cierre del día</button>}
+      {showHistorial && <button className={tab==="historial"?"on":""} onClick={()=>setTab("historial")}>Historial</button>}
+      {showResumen && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}><Icon name="trendup" size={15} style={{marginRight:6}}/>Resumen Gerencial</button>}
+      {showConf && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
+    </div>}
+    {tab==="cierre" && showCierre && <InventarioCierre user={user} toast={toast}/>}
+    {tab==="historial" && showHistorial && <InventarioHistorial user={user}/>}
+    {tab==="resumen" && showResumen && <InventarioResumen/>}
+    {tab==="conf" && showConf && <InventarioConfig user={user} toast={toast}/>}
+  </div>;
+}
+
+function TopBar({user,onLogout}){
+  const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
+  return <div className="topbar">
+    <div className="brand" style={{display:"flex",alignItems:"center",gap:8}}><Icon name="box" size={22}/><b>Inventario A&amp;B</b></div>
+    <div className="sp"></div>
+    <div className="who">{user.nombre}<br/><span style={{opacity:.85}}>{rolLbl}</span></div>
+    <button className="iconbtn" title="Salir" onClick={onLogout}><Icon name="logout" size={19}/></button>
+  </div>;
+}
+function App(){
+  const [user,setUser]=useState(()=>{ try{return JSON.parse(sessionStorage.getItem("pp_inv_user"))}catch{return null} });
+  const [toastMsg,setToastMsg]=useState("");
+  const [connected,setConnected]=useState(MODE!=="graph");
+  const [checking,setChecking]=useState(MODE==="graph");
+  const [cfgVer,setCfgVer]=useState(0);
+  const toast=m=>{ setToastMsg(m); const dur=/no se pudo|error|❌|403|falló/i.test(m)?8000:2600; setTimeout(()=>setToastMsg(""),dur); };
+  useEffect(()=>{ (async()=>{
+    if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
+      if(ok){ try{ applyInvConfig(await invCfgRead());
+          if(!(INV_CFG.bodegas&&INV_CFG.bodegas.length) && !localStorage.getItem("pp_inv_seed_v1")){
+            INV_CFG.bodegas=INV_SEED_BODEGAS; await invCfgSave(); localStorage.setItem("pp_inv_seed_v1","1"); }
+        }catch(e){}
+        setCfgVer(v=>v+1);
+      }
+    }
+    setChecking(false);
+  })(); },[]);
+  useEffect(()=>{ if(MODE!=="graph") return;
+    const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok) setConnected(true); }, 20*60*1000);
+    return ()=>clearInterval(t);
+  },[]);
+  function onLogin(u){ sessionStorage.setItem("pp_inv_user",JSON.stringify(u)); setUser(u); }
+  function logout(){ sessionStorage.removeItem("pp_inv_user"); setUser(null); }
+  const isFileProtocol = typeof window!=="undefined" && window.location && window.location.protocol==="file:";
+  if(MODE==="graph" && isFileProtocol) return <div className="login"><div className="sun"></div><div className="lcard">
+    <div className="lbrand"><span className="dot"></span>Inventario A&amp;B</div>
+    <div className="ltag">Este archivo se abrió directamente desde tu computadora (no desde internet).</div>
+    <div className="lerr" style={{marginTop:4,whiteSpace:"normal"}}>El inicio de sesión con Microsoft no puede completarse así — necesita que el archivo esté publicado en una dirección web (https://...), no abierto como archivo descargado.</div>
+    <div className="hint" style={{marginTop:14}}>Solución: sube este archivo a GitHub Pages (como se explicó en las instrucciones de instalación) y ábrelo desde esa dirección web, por ejemplo <b>https://stra-pp.github.io/...</b>. Una vez publicado ahí, el botón de "Iniciar sesión con Microsoft" funcionará normalmente.</div>
+  </div></div>;
+  if(MODE==="graph" && checking) return <div className="login"><div className="sun"></div><div className="lcard">
+    <div className="lbrand"><span className="dot"></span>Inventario A&amp;B</div>
+    <div className="ltag" style={{marginBottom:0}}>Conectando con SharePoint…</div></div></div>;
+  if(MODE==="graph" && !connected) return <div className="login"><div className="sun"></div><div className="lcard">
+    <div className="lbrand"><span className="dot"></span>Inventario A&amp;B</div>
+    <div className="ltag">Inicia sesión con tu cuenta Microsoft para usar la app. Los datos se guardan en SharePoint (Prueba7).</div>
+    <button className="btn ocean block" onClick={()=>msSignIn()}><Icon name="link" size={15} style={{marginRight:6}}/>Iniciar sesión con Microsoft</button>
+    {msErr && <div className="lerr" style={{marginTop:12,whiteSpace:"normal"}}>{msErr}</div>}
+    <div className="hint" style={{marginTop:14,wordBreak:"break-all"}}>Si el login da error de "redirect_uri", registra esta URL exacta en Azure (App registrations · Authentication · Single-page application):<br/><b>{APP.ms.redirectUri}</b></div>
+  </div></div>;
+  if(!user) return <Login onLogin={onLogin}/>;
+  return <div className="app">
+    <TopBar user={user} onLogout={logout}/>
+    <div className="content">
+      <div className="banner"><Icon name="alert" size={15} style={{marginRight:6}}/>Versión independiente de prueba — todavía no está conectada a la app principal de Playa Paraíso. Los datos ya se guardan de verdad en SharePoint (Prueba7).</div>
+      <Inventario key={cfgVer} user={user} toast={toast}/>
+    </div>
+    {toastMsg && <div className="toast">{toastMsg}</div>}
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+
+<script>
+(function(){
+  function show(msg){ var r=document.getElementById("root"); if(r&&r.children.length>0)return;
+    r.innerHTML='<div style="max-width:560px;margin:40px auto;padding:20px;font-family:Inter,system-ui,sans-serif;color:#1f2a2c">'+
+      '<h2 style="color:#0d6e75">Inventario A&amp;B no pudo cargar</h2><p style="color:#6c7a7c">'+msg+'</p>'+
+      '<p style="color:#6c7a7c;font-size:13px">Si lo ves en la vista previa, descarga el archivo y ábrelo en tu navegador o súbelo a GitHub Pages.</p></div>'; }
+  window.addEventListener("error",function(e){ show("Detalle: "+(e.message||"error al cargar un recurso")); });
+  window.addEventListener("load",function(){ setTimeout(function(){
+    if(typeof React==="undefined") return show("No se cargó React (la red bloqueó la CDN).");
+    show("La aplicación no se inició. Abre la consola (F12) para más detalle."); },1800); });
+})();
+</script>
+</body>
+</html>
