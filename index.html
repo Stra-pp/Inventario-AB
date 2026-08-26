@@ -747,9 +747,18 @@ let USERS=[
   {id:'c18',nombre:'Eventual',pin:'',rol:'colaborador',areas:['Áreas Públicas','Servicio A la Carta','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
   {id:'c19',nombre:'Alejandro Peñaherrera',pin:'',rol:'colaborador',areas:[]},
   {id:'c20',nombre:'Jeremy Velazco',pin:'',rol:'colaborador',areas:[]},
-  {id:'c21',nombre:'Eliana',pin:'',rol:'colaborador',areas:[]},
   {id:'c22',nombre:'Katty Leiton',pin:'',rol:'colaborador',areas:[]},
   {id:'c23',nombre:'Adriana Salazar',pin:'',rol:'colaborador',areas:[]},
+  // Cocina — responsables del conteo final diario (pendiente asignarles bodega en Inventario · Configurar)
+  {id:'c24',nombre:'Nixon',pin:'',rol:'colaborador',areas:[]},
+  {id:'c25',nombre:'Pastor',pin:'',rol:'colaborador',areas:[]},
+  {id:'c26',nombre:'Johan',pin:'',rol:'colaborador',areas:[]},
+  // Servicio — registran PAX (pendiente asignarles bodega en Inventario · Configurar)
+  {id:'c27',nombre:'Daniela Muñoz',pin:'',rol:'colaborador',areas:[]},
+  {id:'c28',nombre:'Julia Toala',pin:'',rol:'colaborador',areas:[]},
+  {id:'c29',nombre:'Juliana Cervantes',pin:'',rol:'colaborador',areas:[]},
+  {id:'c30',nombre:'Madeleine Criollo',pin:'',rol:'colaborador',areas:[]},
+  {id:'c31',nombre:'Michelle Orrala',pin:'',rol:'colaborador',areas:[]},
 ];
 const ICONS={
   clipboard:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/>',
@@ -930,7 +939,7 @@ async function invAbrirHoy(codigo, user){
     const prev = ultimoCerrado && (ultimoCerrado.items||[]).find(x=>x.codigo===p.codigo);
     return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? (+prev.final||0) : 0, tp:0, tn:0, merma:0, final:null};
   });
-  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha:hoy, responsable:"",
+  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha:hoy, responsable:user.nombre,
     items, servicios:[], cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
   await Store.writeOne("Inventario", rec);
   return rec;
@@ -1086,12 +1095,13 @@ function InventarioCierre({user,toast,modo}){
   const listados = completo ? filtrados
     : filtrados.slice().sort((a,b)=> ((+b.it.inicial||0)>0?1:0) - ((+a.it.inicial||0)>0?1:0));
   async function guardar(cerrar){
-    if(cerrar && !rec.responsable.trim()){ toast("Falta el nombre del responsable."); return; }
     const faltantes = rec.items.filter(it=>it.final===null||it.final==="").length;
     if(cerrar && faltantes>0){ if(!window.confirm(`${faltantes} producto(s) sin "Cantidad final". ¿Cerrar de todas formas?`)) return; }
     setGuardando(true);
     try{
-      const toSave = {...rec, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn};
+      // El responsable del conteo es quien está registrando ahora mismo — no
+      // se pide como campo aparte, se toma directo de la sesión.
+      const toSave = {...rec, responsable:user.nombre, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn};
       await Store.writeOne("Inventario", toSave);
       setRec(toSave);
       toast(cerrar?"Inventario del día cerrado.":"Guardado.");
@@ -1110,9 +1120,7 @@ function InventarioCierre({user,toast,modo}){
       </div>
     </div>
     {rec.cerrado
-      ? <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega. Puedes verlo en la pestaña Historial. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>
-      : <Field label="Responsable del conteo" req><input className="inp" value={rec.responsable} placeholder="Nombre de quien cuenta"
-          onChange={e=>setRec(r=>({...r,responsable:e.target.value}))}/></Field>}
+      && <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega. Puedes verlo en la pestaña Historial. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>}
     {completo && <div className="card" style={{marginBottom:12,padding:"12px 14px"}}>
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
       <div className="hint" style={{marginBottom:10}}>Adultos y niños atendidos hoy en esta bodega. Se usa para calcular el consumo promedio por persona.</div>
@@ -1359,22 +1367,24 @@ function InventarioDetalle({r,user}){
 function InventarioResumen({user}){
   const [filas,setFilas]=useState(null);
   const [ver,setVer]=useState(null);
+  const [selFecha,setSelFecha]=useState({}); // bodega.codigo -> fecha elegida en el filtro
   useEffect(()=>{ (async()=>{
     const bodegas=INV_CFG.bodegas||[];
     const out=[];
     for(const b of bodegas){
-      const regs=await invRegistrosDe(b.codigo);
+      const regs=await invRegistrosDe(b.codigo); // todos los días de esta bodega, más reciente primero
       const ultimo=regs.find(r=>r.cerrado)||null;
       const hoy=regs.find(r=>r.fecha===hoyISO());
-      out.push({bodega:b, ultimo, cerradoHoy: !!(hoy&&hoy.cerrado)});
+      out.push({bodega:b, regs, ultimo, hoy, cerradoHoy: !!(hoy&&hoy.cerrado)});
     }
     setFilas(out);
   })(); },[]);
   if(!filas) return <div className="empty">Cargando…</div>;
   if(!filas.length) return <div className="empty">Todavía no hay bodegas configuradas. Ve a Inventario · Configurar.</div>;
   return <div>
-    <p className="sub">Último cierre registrado por bodega.</p>
-    {filas.map(f=>{ const atrasado = !f.ultimo || sumaDiasYMD(hoyISO(),0) > sumaDiasYMD(f.ultimo.fecha,1);
+    <p className="sub">Último cierre registrado por bodega. Usa "Ver otro día" para revisar días anteriores, o abre el de hoy aunque todavía no esté concluido.</p>
+    {filas.map(f=>{ const fechaSel = selFecha[f.bodega.codigo]||"";
+      const regSel = fechaSel ? f.regs.find(r=>r.fecha===fechaSel) : null;
       return <div key={f.bodega.codigo} className="item">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
           <b>{f.bodega.nombre}</b>
@@ -1387,6 +1397,17 @@ function InventarioResumen({user}){
             {" "}· <span style={{cursor:"pointer",color:"var(--ocean-d)",fontWeight:700}} onClick={()=>setVer(f.ultimo)}>ver detalle</span>
           </div>
           : <div className="meta" style={{marginTop:4}}>Nadie ha cerrado un inventario todavía en esta bodega.</div>}
+        {f.hoy && !f.cerradoHoy && <div className="meta" style={{marginTop:4}}>
+            Hoy ({f.hoy.fecha}) todavía sin cerrar
+            {" "}· <span style={{cursor:"pointer",color:"var(--ocean-d)",fontWeight:700}} onClick={()=>setVer(f.hoy)}>ver cómo va hoy</span>
+          </div>}
+        {!!f.regs.length && <div style={{marginTop:6,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <select className="inp" style={{width:190}} value={fechaSel} onChange={e=>setSelFecha(s=>({...s,[f.bodega.codigo]:e.target.value}))}>
+            <option value="">Ver otro día…</option>
+            {f.regs.map(r=><option key={r.fecha} value={r.fecha}>{r.fecha}{r.cerrado?"":" (sin cerrar)"}</option>)}
+          </select>
+          {regSel && <button className="btn ghost" style={{padding:"4px 10px",fontSize:12.5}} onClick={()=>setVer(regSel)}>Ver</button>}
+        </div>}
       </div>; })}
     {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)}><InventarioDetalle r={ver} user={user}/></Modal>}
   </div>;
