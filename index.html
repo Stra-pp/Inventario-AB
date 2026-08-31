@@ -718,6 +718,9 @@ async function msSignOut(){ try{ await msInitApp(); const a=msalApp.getAllAccoun
 
 const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
 const esDev = u => u && u.rol==='desarrollador';
+/* Único colaborador (además de Gerencia/Desarrollador) con permiso de
+   registrar Merma en el cierre de inventario A&B — hoy: Antonio Puga. */
+const esMerma = u => !!(u && u.merma);
 
 let USERS=[
   {id:'dev',nombre:'Desarrollador',pin:'9999',rol:'desarrollador',areas:[]},
@@ -738,27 +741,30 @@ let USERS=[
   {id:'c9',nombre:'Justin',pin:'',rol:'colaborador',areas:['Habitaciones']},
   {id:'c10',nombre:'Shirley Fuentes',pin:'',rol:'colaborador',areas:['Apertura Cocina','Cocina Central','Chiringuito','Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Sunset Bar','Sunset Deck']},
   {id:'c11',nombre:'Fernando Urrutia',pin:'',rol:'colaborador',areas:['Apertura Cocina','Cocina Central','Chiringuito','Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Sunset Bar','Sunset Deck']},
-  {id:'c12',nombre:'Andrés Mite',pin:'',rol:'colaborador',areas:['Cocina Almeja Playera']},
-  {id:'c13',nombre:'Adriana',pin:'',rol:'colaborador',areas:['Servicio Almeja Playera']},
+  {id:'c12',nombre:'Andrés Mite',pin:'',rol:'colaborador',areas:['Cocina Almeja Playera'],inv:true},
+  {id:'c13',nombre:'Adriana',pin:'',rol:'colaborador',areas:['Servicio Almeja Playera'],inv:true},
   {id:'c14',nombre:'Manuel C.',pin:'',rol:'colaborador',areas:['Mantenimiento']},
   {id:'c15',nombre:'Xavier L.',pin:'',rol:'colaborador',areas:['Mantenimiento']},
   {id:'c16',nombre:'Josue Aquino',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
   {id:'c17',nombre:'Departamento Compras',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
   {id:'c18',nombre:'Eventual',pin:'',rol:'colaborador',areas:['Áreas Públicas','Servicio A la Carta','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
-  {id:'c19',nombre:'Alejandro Peñaherrera',pin:'',rol:'colaborador',areas:[]},
-  {id:'c20',nombre:'Jeremy Velazco',pin:'',rol:'colaborador',areas:[]},
-  {id:'c22',nombre:'Katty Leiton',pin:'',rol:'colaborador',areas:[]},
-  {id:'c23',nombre:'Adriana Salazar',pin:'',rol:'colaborador',areas:[]},
+  {id:'c19',nombre:'Alejandro Peñaherrera',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c20',nombre:'Jeremy Velazco',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c22',nombre:'Katty Leiton',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c23',nombre:'Adriana Salazar',pin:'',rol:'colaborador',areas:[],inv:true},
   // Cocina — responsables del conteo final diario (pendiente asignarles bodega en Inventario · Configurar)
-  {id:'c24',nombre:'Nixon',pin:'',rol:'colaborador',areas:[]},
-  {id:'c25',nombre:'Pastor',pin:'',rol:'colaborador',areas:[]},
-  {id:'c26',nombre:'Johan',pin:'',rol:'colaborador',areas:[]},
+  {id:'c24',nombre:'Nixon',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c25',nombre:'Pastor',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c26',nombre:'Johan',pin:'',rol:'colaborador',areas:[],inv:true},
   // Servicio — registran PAX (pendiente asignarles bodega en Inventario · Configurar)
-  {id:'c27',nombre:'Daniela Muñoz',pin:'',rol:'colaborador',areas:[]},
-  {id:'c28',nombre:'Julia Toala',pin:'',rol:'colaborador',areas:[]},
-  {id:'c29',nombre:'Juliana Cervantes',pin:'',rol:'colaborador',areas:[]},
-  {id:'c30',nombre:'Madeleine Criollo',pin:'',rol:'colaborador',areas:[]},
-  {id:'c31',nombre:'Michelle Orrala',pin:'',rol:'colaborador',areas:[]},
+  {id:'c27',nombre:'Daniela Muñoz',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c28',nombre:'Julia Toala',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c29',nombre:'Juliana Cervantes',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c30',nombre:'Madeleine Criollo',pin:'',rol:'colaborador',areas:[],inv:true},
+  {id:'c31',nombre:'Michelle Orrala',pin:'',rol:'colaborador',areas:[],inv:true},
+  // Antonio Puga: único colaborador (además de Gerencia/Desarrollador) autorizado
+  // a registrar Merma en el cierre de inventario A&B.
+  {id:'c32',nombre:'Antonio Puga',pin:'',rol:'colaborador',areas:[],inv:true,merma:true},
 ];
 const ICONS={
   clipboard:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/>',
@@ -821,7 +827,12 @@ function Modal({title,onClose,children}){
 function Login({onLogin}){
   const [step,setStep]=useState("choice"); // choice | pin | libre
   const pinUsers=USERS.filter(u=>u.pin);
-  const colabs=USERS.filter(u=>u.rol==='colaborador').sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  /* Esta app (Inventario A&B) es de uso exclusivo del equipo de bodegas: la
+     lista "Soy colaborador" solo muestra a quienes tienen acceso a Inventario
+     (marca inv:true), no al personal completo del hotel (Recepción,
+     Mantenimiento, Ama de Llaves, etc.), aunque comparta el mismo padrón de
+     usuarios que la app principal. */
+  const colabs=USERS.filter(u=>u.rol==='colaborador' && u.inv).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   const [name,setName]=useState(""); const [pin,setPin]=useState(""); const [err,setErr]=useState("");
   const press=d=>{ setErr(""); setPin(p=> p.length<4 ? p+d : p); };
   useEffect(()=>{ if(step==='pin'&&pin.length===4){
@@ -1063,6 +1074,11 @@ async function invAplicarLoteZeus(rows){
      servicio). */
 function InventarioCierre({user,toast,modo}){
   const completo = modo!=="cocina";
+  /* Antonio Puga (u otro colaborador con merma:true, sin ser Gerencia/
+     Desarrollador) entra en modo "completo" solo para poder ver y llenar
+     Merma; Traslados los deja de solo lectura porque ya los llena la
+     automatización de Zeus. */
+  const soloMerma = completo && !esGD(user);
   const bodegas = (INV_CFG.bodegas||[]).filter(b=>inventarioBodegasDe(user).includes(b.codigo));
   const [codigo,setCodigo]=useState(bodegas[0]?bodegas[0].codigo:"");
   const [rec,setRec]=useState(null);
@@ -1167,10 +1183,14 @@ function InventarioCierre({user,toast,modo}){
           <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.tn)}</div>
           <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.merma)}</div>
         </> : <>
-          <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
-            value={it.tp||""} onChange={e=>setItem(i,{tp:e.target.value===""?0:+e.target.value})}/>
-          <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
-            value={it.tn||""} onChange={e=>setItem(i,{tn:e.target.value===""?0:+e.target.value})}/>
+          {soloMerma
+            ? <div style={{width:56,textAlign:"right",fontSize:13}} title="Los traslados los llena automáticamente Zeus.">{invFmt(it.tp)}</div>
+            : <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
+                value={it.tp||""} onChange={e=>setItem(i,{tp:e.target.value===""?0:+e.target.value})}/>}
+          {soloMerma
+            ? <div style={{width:56,textAlign:"right",fontSize:13}} title="Los traslados los llena automáticamente Zeus.">{invFmt(it.tn)}</div>
+            : <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
+                value={it.tn||""} onChange={e=>setItem(i,{tn:e.target.value===""?0:+e.target.value})}/>}
           <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
             value={it.merma||""} onChange={e=>setItem(i,{merma:e.target.value===""?0:+e.target.value})}/>
         </>)}
@@ -1516,7 +1536,7 @@ function Inventario({user,toast}){
   const esGer = user.rol==='gerencia';
   const propias = inventarioBodegasDe(user);
   const propiasServicio = inventarioBodegasServicioDe(user);
-  const modoCierre = esGD(user) ? "completo" : "cocina";
+  const modoCierre = (esGD(user) || esMerma(user)) ? "completo" : "cocina";
   const showCierre = !esGer && propias.length>0;
   const showServicio = !esGer && propiasServicio.length>0 && !esGD(user); // GD ya ve todo en modo completo
   const showHistorial = !esGer && propias.length>0;
