@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0d6e75" />
-<title>Inventario A&amp;B · Playa Paraíso (prueba)</title>
+<title>Inventario A&amp;B · Playa Paraíso</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -259,8 +259,8 @@ svg{display:inline-block;vertical-align:middle}
 const {useState,useEffect,useMemo,useRef} = React;
 
 const APP = {
-  version: "Inventario A&B · Playa Paraíso · versión independiente de prueba",
-  versionShort: "Inventario A&B (prueba)",
+  version: "Inventario A&B · Playa Paraíso",
+  versionShort: "Inventario A&B",
   useGraph: true,
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1891,7 +1891,6 @@ function App(){
   return <div className="app">
     <TopBar user={user} onLogout={logout}/>
     <div className="content">
-      <div className="banner"><Icon name="alert" size={15} style={{marginRight:6}}/>Versión independiente de prueba — todavía no está conectada a la app principal de Playa Paraíso. Los datos ya se guardan de verdad en SharePoint (Prueba7).</div>
       <Inventario key={cfgVer} user={user} toast={toast}/>
     </div>
     {toastMsg && <div className="toast">{toastMsg}</div>}
