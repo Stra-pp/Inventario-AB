@@ -722,6 +722,10 @@ const esDev = u => u && u.rol==='desarrollador';
    Merma en el cierre de inventario A&B — hoy: Antonio Puga, que inicia sesión
    con su PIN como "Jefe de Operaciones" (id 'a1'), no con un nombre aparte. */
 const esMerma = u => !!(u && u.merma);
+/* Alias legible: quien tiene merma:true (hoy Antonio Puga, "Jefe de
+   Operaciones") es también quien aprueba o ajusta el cierre de inventario
+   antes de que Gerencia General pueda verlo — ver InventarioAprobacion. */
+const esJefeOperaciones = u => esMerma(u);
 
 let USERS=[
   {id:'dev',nombre:'Desarrollador',pin:'9999',rol:'desarrollador',areas:[]},
@@ -806,7 +810,8 @@ const ICONS={
   chevronUp:'<path d="M18 15l-6-6-6 6"/>',
   alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
   radioOn:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
-  radioOff:'<circle cx="12" cy="12" r="9"/>'
+  radioOff:'<circle cx="12" cy="12" r="9"/>',
+  check:'<path d="M20 6L9 17l-5-5"/>'
 };
 function Icon({name,size=22,style,cls}){ const p=ICONS[name]; if(!p) return null;
   return <svg className={cls} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} dangerouslySetInnerHTML={{__html:p}}/>; }
@@ -1123,8 +1128,26 @@ function invMatchBodegaZeus(nombreZeus){
   const norm = s => s.toString().toUpperCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"") // quita tildes
     .replace(/^BODEGA\s+(DE\s+)?/,"").replace(/[^A-Z0-9 ]/g,"").replace(/\s+/g," ").trim();
-  const n = norm(nombreZeus);
-  const bod = (INV_CFG.bodegas||[]).find(b=> norm(b.nombre)===n || norm(b.zeusNombre||"")===n);
+  /* Zeus no siempre nombra la bodega igual que nuestro cat\u00e1logo:
+     - orden distinto (PDF dice "BODEGA COCINA CHIRINGUITO", nuestra bodega 07
+       se llama "CHIRINGUITO COCINA") \u2192 se compara tambi\u00e9n por CONJUNTO de
+       palabras (orden no importa).
+     - nombre incompleto (PDF dice "BODEGA ALMEJA PLAYERA", nuestra bodega 06
+       se llama "ALMEJA PLAYERA COCINA") \u2192 tambi\u00e9n hace match si el conjunto
+       de palabras de un lado es subconjunto del otro, para no depender de que
+       alguien cargue un alias exacto por cada bodega. */
+  const tokens = s => norm(s).split(" ").filter(Boolean);
+  const tokenSet = s => tokens(s).sort().join(" ");
+  const isSubset = (a,b) => a.length>0 && a.every(t=>b.includes(t));
+  const n = norm(nombreZeus), nt = tokenSet(nombreZeus), ntoks = tokens(nombreZeus);
+  const bod = (INV_CFG.bodegas||[]).find(b=>{
+    if(norm(b.nombre)===n || norm(b.zeusNombre||"")===n) return true;
+    if(tokenSet(b.nombre)===nt || (b.zeusNombre && tokenSet(b.zeusNombre)===nt)) return true;
+    const btoks = tokens(b.nombre);
+    if(isSubset(ntoks,btoks) || isSubset(btoks,ntoks)) return true;
+    if(b.zeusNombre){ const zt=tokens(b.zeusNombre); if(isSubset(ntoks,zt)||isSubset(zt,ntoks)) return true; }
+    return false;
+  });
   return bod ? bod.codigo : null;
 }
 async function invAsegurarProducto(codigoBodega, codigo, nombre, unidad){
@@ -1269,7 +1292,12 @@ function InventarioCierre({user,toast,modo}){
     try{
       // El responsable del conteo es quien está registrando ahora mismo — no
       // se pide como campo aparte, se toma directo de la sesión.
-      let toSave = {...rec, responsable:user.nombre, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn};
+      /* Al cerrar por primera vez, el día queda "pendiente de aprobación" del
+         Jefe de Operaciones (Antonio) — Gerencia General no lo ve todavía en
+         el Resumen hasta que él le dé OK o lo ajuste (ver InventarioAprobacion
+         y el filtro por r.aprobado en InventarioResumen/Desviaciones). */
+      let toSave = {...rec, responsable:user.nombre, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn,
+        aprobado: cerrar?false:rec.aprobado};
       if(cerrar){
         // Al cerrar: se detectan desviaciones contra el historial real de la
         // bodega y, si hay alguna, se guardan en el propio registro (para que
@@ -1295,9 +1323,15 @@ function InventarioCierre({user,toast,modo}){
         {rec.cerrado
           ? <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}><Icon name="lock" size={13} style={{marginRight:4}}/>Cerrado por {rec.cerradoPor}</span>
           : <span className="pill" style={{background:"#fff3d6",color:"#8a6512"}}>Sin cerrar</span>}
+        {rec.cerrado && rec.aprobado===false &&
+          <span className="pill" style={{background:"#fff3d6",color:"#8a6512"}}><Icon name="clock" size={13} style={{marginRight:4}}/>Pendiente de aprobación</span>}
+        {rec.cerrado && rec.aprobado===true &&
+          <span className="pill" style={{background:"#e6f2f3",color:"var(--ocean-d)"}}>Aprobado por {rec.aprobadoPor}</span>}
       </div>
     </div>
-    {rec.cerrado
+    {rec.cerrado && rec.aprobado===false
+      && <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega — queda pendiente de aprobación del Jefe de Operaciones antes de que Gerencia General lo vea. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>}
+    {rec.cerrado && rec.aprobado!==false
       && <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega. Puedes verlo en la pestaña Historial. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>}
     {rec.cerrado && rec.desviaciones && rec.desviaciones.length>0 &&
       <div className="banner" style={{background:"#fdeceb",borderColor:"#e8b4ae",color:"#9a3324",flexDirection:"column",alignItems:"stretch",gap:6}}>
@@ -1487,7 +1521,14 @@ function InventarioHistorial({user}){
 function InventarioDetalle({r,user}){
   const [q,setQ]=useState("");
   const [soloMov,setSoloMov]=useState(false);
-  const completo = esGD(user) || esReportero(user);
+  /* Cualquiera que pueda abrir el Resumen Gerencial —sea porque está en
+     accesosReporte (jefatura puntual, ej. Antonio Puga) o porque se le dio
+     el permiso "resumen" desde Configurar → "Qué puede ver cada uno"— ve
+     exactamente el mismo detalle completo: traslados, merma, consumo,
+     promedio, PAX, el filtro "solo con movimiento" y la exportación a PDF.
+     Antes dependían de mecanismos distintos y algunos veían una versión
+     recortada; ahora es una sola forma de visualización para todos. */
+  const completo = esGD(user) || esReportero(user) || tienePermiso(user,'resumen');
   const pax = invTotalPax(r);
   const tieneMovimiento = it=>{ if((+it.tp||0)!==0||(+it.tn||0)!==0||(+it.merma||0)!==0) return true;
     const c=invComputeConsumo(it); return c!==null && c!==0; };
@@ -1550,6 +1591,119 @@ function InventarioDetalle({r,user}){
         </div>; })}
       {!items.length && <div className="empty">{(completo&&soloMov)?"Ningún producto tuvo movimiento ese día.":"Ningún producto coincide."}</div>}
     </div>
+    {completo && r.cerrado && <div className="inv-noprint" style={{marginTop:14,paddingTop:10,borderTop:"1px solid var(--line)"}}>
+      {r.aprobado===false && <div className="pill" style={{background:"#fff3d6",color:"#8a6512"}}><Icon name="clock" size={13} style={{marginRight:4}}/>Pendiente de aprobación del Jefe de Operaciones</div>}
+      {r.aprobado===true && <div className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Aprobado por {r.aprobadoPor} el {fmtDT(r.aprobadoEn)}</div>}
+      {(r.ajustes||[]).map((a,i)=><div key={i} className="meta" style={{marginTop:6}}>Ajuste realizado por el Jefe de Operaciones — {a.por} · {fmtDT(a.en)}</div>)}
+    </div>}
+  </div>;
+}
+/* ===== Pantalla: Aprobación de cierres (Jefe de Operaciones — Antonio) =====
+   Todo cierre nuevo queda "pendiente" hasta que Antonio lo revise: OK lo deja
+   tal cual y lo habilita para Gerencia General; Ajustar le permite corregir
+   Cantidad final y PAX antes de aprobarlo, dejando constancia del ajuste. */
+function InventarioAprobacion({user,toast}){
+  const [,force]=useState(0); const re=()=>force(x=>x+1);
+  const [filas,setFilas]=useState(null);
+  const [ajustando,setAjustando]=useState(null);
+  async function cargar(){
+    const bodegas=INV_CFG.bodegas||[];
+    const out=[];
+    for(const b of bodegas){
+      const regs=await invRegistrosDe(b.codigo);
+      for(const r of regs){ if(r.cerrado && r.aprobado===false) out.push(r); }
+    }
+    out.sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
+    setFilas(out);
+  }
+  useEffect(()=>{ cargar(); },[]);
+  async function aprobar(r){
+    try{
+      const toSave={...r, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO()};
+      await Store.writeOne("Inventario", toSave);
+      toast("Aprobado — ya está disponible para Gerencia General.");
+      cargar();
+    }catch(e){ toast("No se pudo aprobar: "+(e.message||e)); }
+  }
+  if(!filas) return <div className="empty">Cargando…</div>;
+  return <div>
+    <p className="sub">Cierres del día ya con inventario final y merma, esperando tu revisión. Mientras no des OK o ajustes, Gerencia General no los ve.</p>
+    {!filas.length && <div className="empty"><div className="e"><Icon name="check" size={44}/></div>No hay cierres pendientes de aprobación.</div>}
+    {filas.map(r=><div key={r.id} className="item">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+        <div><b>{r.bodegaNombre}</b><div className="meta">{r.fecha} · responsable {r.responsable||"—"} · cerrado por {r.cerradoPor} el {fmtDT(r.cerradoEn)}</div></div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn ghost" onClick={()=>setAjustando(r)}>Ajustar</button>
+          <button className="btn primary" onClick={()=>aprobar(r)}><Icon name="check" size={15} style={{marginRight:6}}/>OK</button>
+        </div>
+      </div>
+    </div>)}
+    {ajustando && <Modal title={`Ajustar · ${ajustando.bodegaNombre} · ${ajustando.fecha}`} onClose={()=>setAjustando(null)}>
+      <InventarioAjuste r={ajustando} user={user} toast={toast} onDone={()=>{ setAjustando(null); cargar(); }}/>
+    </Modal>}
+  </div>;
+}
+/* Editor de ajuste: el Jefe de Operaciones corrige Cantidad final y PAX de un
+   cierre ya hecho por cocina/servicio, antes de aprobarlo. Al guardar se
+   marca aprobado automáticamente y queda el registro "Ajuste realizado por
+   el Jefe de Operaciones" visible al pie del detalle (InventarioDetalle). */
+function InventarioAjuste({r,user,toast,onDone}){
+  const [items,setItems]=useState(()=>JSON.parse(JSON.stringify(r.items||[])));
+  const [servicios,setServicios]=useState(()=>JSON.parse(JSON.stringify(r.servicios||[])));
+  const [guardando,setGuardando]=useState(false);
+  const bodegaObj = invBodega(r.bodega);
+  const [servNombre,setServNombre]=useState(invServiciosDisponibles(bodegaObj)[0]);
+  const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
+  function setFinal(i,v){ setItems(arr=>{ const a=arr.slice(); a[i]={...a[i],final:v===""?null:+v}; return a; }); }
+  function agregarServicio(){ const ad=+servAd||0, ni=+servNi||0;
+    if(!ad&&!ni){ toast("Ingresa al menos adultos o niños."); return; }
+    setServicios(s=>[...s,{id:gid(),nombre:servNombre,adultos:ad,ninos:ni}]); setServAd(""); setServNi(""); }
+  function quitarServicio(id){ setServicios(s=>s.filter(x=>x.id!==id)); }
+  async function guardar(){
+    setGuardando(true);
+    try{
+      const toSave = {...r, items, servicios, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO(),
+        ajustes:[...(r.ajustes||[]), {por:user.nombre, en:nowISO()}]};
+      await Store.writeOne("Inventario", toSave);
+      toast("Ajuste guardado y aprobado — ya está disponible para Gerencia General.");
+      onDone();
+    }catch(e){ toast("No se pudo guardar el ajuste: "+(e.message||e)); }
+    setGuardando(false);
+  }
+  return <div>
+    <div className="card" style={{marginBottom:12,padding:"12px 14px"}}>
+      <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
+      {servicios.length===0 && <div className="hint" style={{marginBottom:8}}>Sin registros de PAX ese día.</div>}
+      {servicios.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
+        <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
+        <div>{s.adultos} adultos</div><div>{s.ninos} niños</div>
+        <button className="btn ghost" style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>
+      </div>)}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+        <select className="inp" style={{width:150}} value={servNombre} onChange={e=>setServNombre(e.target.value)}>
+          {invServiciosDisponibles(bodegaObj).map(s=><option key={s} value={s}>{s}</option>)}</select>
+        <input className="inp" type="number" min="0" placeholder="Adultos" style={{width:90}} value={servAd} onChange={e=>setServAd(e.target.value)}/>
+        <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>
+        <button className="btn ghost" onClick={agregarServicio}>Agregar</button>
+      </div>
+    </div>
+    <div style={{display:"flex",fontSize:11.5,fontWeight:700,color:"var(--muted)",padding:"0 10px",gap:6,marginBottom:4}}>
+      <div style={{flex:"1 1 auto",minWidth:0}}>Producto</div>
+      <div style={{width:56,textAlign:"right"}}>Inicial</div>
+      <div style={{width:64,textAlign:"right"}}>Cant. final</div>
+    </div>
+    {items.map((it,i)=><div key={it.codigo} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
+      <div style={{flex:"1 1 auto",minWidth:0}}>
+        <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}</div>
+        <div className="meta">#{it.codigo}</div>
+      </div>
+      <div style={{width:56,textAlign:"right",fontSize:13}}>{invFmt(it.inicial)}</div>
+      <input className="inp" type="number" inputMode="decimal" style={{width:64,textAlign:"right",padding:"5px 6px",fontWeight:700}}
+        value={it.final===null||it.final===undefined?"":it.final} onChange={e=>setFinal(i,e.target.value)}/>
+    </div>)}
+    <div className="row" style={{marginTop:14,gap:10}}>
+      <button className="btn primary block" disabled={guardando} onClick={guardar}><Icon name="check" size={15} style={{marginRight:6}}/>Guardar ajuste y aprobar</button>
+    </div>
   </div>;
 }
 
@@ -1564,7 +1718,12 @@ function InventarioResumen({user}){
     const bodegas=INV_CFG.bodegas||[];
     const out=[];
     for(const b of bodegas){
-      const regs=await invRegistrosDe(b.codigo); // todos los días de esta bodega, más reciente primero
+      /* Un cierre nuevo queda con aprobado:false hasta que el Jefe de
+         Operaciones le da OK o lo ajusta (ver InventarioAprobacion) — hasta
+         entonces no aparece aquí. Los registros viejos sin ese campo
+         (aprobado===undefined) se consideran ya aprobados, para no ocultar
+         retroactivamente el histórico. */
+      const regs=(await invRegistrosDe(b.codigo)).filter(r=>r.aprobado!==false); // todos los días de esta bodega, más reciente primero
       const ultimo=regs.find(r=>r.cerrado)||null;
       const hoy=regs.find(r=>r.fecha===hoyISO());
       out.push({bodega:b, regs, ultimo, hoy, cerradoHoy: !!(hoy&&hoy.cerrado)});
@@ -1619,7 +1778,9 @@ function InventarioDesviaciones({user,toast}){
     const out=[];
     for(const b of bodegas){
       const regs=await invRegistrosDe(b.codigo);
-      for(const r of regs){ if(r.cerrado && r.desviaciones && r.desviaciones.length){
+      // Igual que en Resumen: no se muestra a Gerencia General hasta que el
+      // Jefe de Operaciones apruebe o ajuste el cierre.
+      for(const r of regs){ if(r.cerrado && r.aprobado!==false && r.desviaciones && r.desviaciones.length){
         out.push({bodega:b.nombre, fecha:r.fecha, responsable:r.responsable, desviaciones:r.desviaciones}); } }
     }
     out.sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
@@ -1813,8 +1974,12 @@ function Inventario({user,toast}){
      cada uno", no cambiando este valor por defecto. */
   const showDesviaciones = tienePermiso(user,'desviaciones');
   const showConf = tienePermiso(user,'configurar');
-  const [tab,setTab]=useState(showCierre?"cierre":showServicio?"servicio":showResumen?"resumen":showHistorial?"historial":showDesviaciones?"desviaciones":"conf");
-  const sinNada = !showCierre && !showServicio && !showHistorial && !showResumen && !showDesviaciones && !showConf;
+  /* Aprobación: solo el Jefe de Operaciones (merma:true, hoy Antonio Puga) y
+     el Desarrollador (para soporte) revisan los cierres pendientes antes de
+     que Gerencia General pueda verlos en el Resumen. */
+  const showAprobacion = esJefeOperaciones(user) || esDev(user);
+  const [tab,setTab]=useState(showCierre?"cierre":showServicio?"servicio":showAprobacion?"aprobacion":showResumen?"resumen":showHistorial?"historial":showDesviaciones?"desviaciones":"conf");
+  const sinNada = !showCierre && !showServicio && !showHistorial && !showResumen && !showDesviaciones && !showConf && !showAprobacion;
   return <div>
     <h1 className="h1">Inventario A&B</h1>
     <p className="sub">Cierre diario de bodegas y consumo real.</p>
@@ -1823,6 +1988,7 @@ function Inventario({user,toast}){
     {!sinNada && <div className="seg">
       {showCierre && <button className={tab==="cierre"?"on":""} onClick={()=>setTab("cierre")}>Cierre del día</button>}
       {showServicio && <button className={tab==="servicio"?"on":""} onClick={()=>setTab("servicio")}>PAX / Servicio</button>}
+      {showAprobacion && <button className={tab==="aprobacion"?"on":""} onClick={()=>setTab("aprobacion")}><Icon name="check" size={15} style={{marginRight:6}}/>Aprobación</button>}
       {showHistorial && <button className={tab==="historial"?"on":""} onClick={()=>setTab("historial")}>Historial</button>}
       {showResumen && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}><Icon name="trendup" size={15} style={{marginRight:6}}/>Resumen Gerencial</button>}
       {showDesviaciones && <button className={tab==="desviaciones"?"on":""} onClick={()=>setTab("desviaciones")}><Icon name="bell" size={15} style={{marginRight:6}}/>Desviaciones</button>}
@@ -1830,6 +1996,7 @@ function Inventario({user,toast}){
     </div>}
     {tab==="cierre" && showCierre && <InventarioCierre user={user} toast={toast} modo={modoCierre}/>}
     {tab==="servicio" && showServicio && <InventarioServicio user={user} toast={toast}/>}
+    {tab==="aprobacion" && showAprobacion && <InventarioAprobacion user={user} toast={toast}/>}
     {tab==="historial" && showHistorial && <InventarioHistorial user={user}/>}
     {tab==="resumen" && showResumen && <InventarioResumen user={user}/>}
     {tab==="desviaciones" && showDesviaciones && <InventarioDesviaciones user={user} toast={toast}/>}
