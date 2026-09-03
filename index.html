@@ -1087,17 +1087,75 @@ async function invEnviarAlertaDesviaciones(rec, desviaciones){
   }catch(e){ return {enviado:false, error:e.message||String(e)}; }
 }
 
+/* ===== Plazo de las 10am para cerrar/aprobar el inventario del día anterior =====
+   Cocina/Bar tiene hasta las 10:00 (hora Ecuador) del día siguiente para
+   guardar Y cerrar el inventario de un día; el Jefe de Operaciones (hoy
+   Antonio Puga) tiene ese mismo plazo para aprobarlo una vez cerrado. Pasada
+   esa hora nadie vuelve a poder tocar ese registro — ni cocina/bar seguir
+   guardando o cerrando, ni el Jefe de Operaciones ajustar o aprobar — y se
+   deja una nota explicando en qué quedó:
+     - guardado pero nunca cerrado  → "se quedó guardado por <responsable>
+       pero nunca se envió para aprobación".
+     - cerrado pero nunca aprobado → "no fue revisado por la jefatura del
+       área".
+   Si nunca se abrió ni un registro ese día no hay nada que anotar: eso ya
+   significa, por sí solo, que no hubo toma de inventario ese día. */
+function invHoraECActual(){
+  try{ return Number(new Date().toLocaleString("en-US",{timeZone:TZ_EC,hour:"2-digit",hour12:false})); }
+  catch(e){ return (new Date().getUTCHours()+19)%24; } // fallback: UTC-5
+}
+function invLimite10amPasado(){ return invHoraECActual()>=10; }
+/* Vencido = ya pasó el día de la fecha del registro Y (o pasó de largo un
+   día completo, o es "mañana" pero ya dieron las 10am hora Ecuador). */
+function invPlazoVencido(fechaRegistro){
+  const hoy = hoyISO();
+  if(fechaRegistro>=hoy) return false;
+  const limite = sumaDiasYMD(fechaRegistro,1);
+  return hoy>limite || (hoy===limite && invLimite10amPasado());
+}
+/* Anota (una sola vez, no repite si ya tiene nota) los registros de una
+   bodega cuyo plazo de las 10am ya venció y quedaron sin cerrar o sin
+   aprobar. Nunca los cierra ni los aprueba por su cuenta — solo deja
+   constancia de qué faltó, para que Historial/Aprobación lo muestren. */
+async function invAnotarVencidos(regs){
+  for(const r of regs){
+    if(r.notaLimite) continue;
+    if(!(!r.cerrado || (r.cerrado && r.aprobado===false))) continue;
+    if(!invPlazoVencido(r.fecha)) continue;
+    const nota = !r.cerrado
+      ? `El inventario se quedó guardado por ${r.responsable||"—"} pero nunca se envió para aprobación.`
+      : `El inventario no fue revisado por la jefatura del área.`;
+    try{
+      await Store.writeOne("Inventario", {...r, notaLimite:nota, bloqueadoPorLimite:true});
+      r.notaLimite=nota; r.bloqueadoPorLimite=true;
+    }catch(e){ /* si falla, se reintenta la próxima vez que alguien abra esta bodega */ }
+  }
+  return regs;
+}
 async function invRegistrosDe(codigo){
   const all = await Store.read("Inventario");
-  return all.filter(r=>r.bodega===codigo).sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
+  const regs = all.filter(r=>r.bodega===codigo).sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
+  await invAnotarVencidos(regs);
+  return regs;
 }
-/* Abre (o recupera) el registro de HOY para una bodega. Si no existe, lo crea
-   llevando el "Cantidad final" del último día CERRADO como "Inicial" de cada
-   producto — la misma regla que ya usan en la Bitácora de Excel: el inventario
-   final de un día es el inicial (el real consumido) del día siguiente. */
+/* Abre (o recupera) el registro del día operativo actual para una bodega. Si
+   no existe, lo crea llevando el "Cantidad final" del último día CERRADO
+   como "Inicial" de cada producto — la misma regla que ya usan en la
+   Bitácora de Excel: el inventario final de un día es el inicial (el real
+   consumido) del día siguiente.
+   Plazo de las 10am: si todavía no dan las 10am (hora Ecuador) y el
+   registro de AYER quedó sin cerrar, se sigue entregando ese registro de
+   ayer (para que cocina/bar lo termine y cierre) en vez de abrir uno nuevo
+   de hoy. En cuanto cierran ese registro, o en cuanto pasan las 10am, se
+   pasa a hoy normalmente y el de ayer queda como quedó (ver invAnotarVencidos). */
 async function invAbrirHoy(codigo, user){
   const hoy = hoyISO();
   const regs = await invRegistrosDe(codigo);
+  if(!invLimite10amPasado()){
+    const ayer = sumaDiasYMD(hoy,-1);
+    const deAyer = regs.find(r=>r.fecha===ayer);
+    if(deAyer && !deAyer.cerrado) return deAyer;
+  }
   const deHoy = regs.find(r=>r.fecha===hoy);
   if(deHoy) return deHoy;
   const bod = invBodega(codigo);
@@ -1272,9 +1330,10 @@ function InventarioCierre({user,toast,modo}){
   if(cargando) return <div className="empty">Cargando…</div>;
   if(!rec) return null;
   const bodegaObj = invBodega(codigo);
+  const esBar = invEsBebidas(bodegaObj);
   function setItem(i,patch){ setRec(r=>{ const items=r.items.slice(); items[i]={...items[i],...patch}; return {...r,items}; }); }
-  function agregarServicio(){ const ad=+servAd||0, ni=+servNi||0;
-    if(!ad&&!ni){ toast("Ingresa al menos adultos o niños."); return; }
+  function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
+    if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
     setRec(r=>({...r, servicios:[...(r.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni}]}));
     setServAd(""); setServNi(""); }
   function quitarServicio(id){ setRec(r=>({...r, servicios:(r.servicios||[]).filter(s=>s.id!==id)})); }
@@ -1329,6 +1388,9 @@ function InventarioCierre({user,toast,modo}){
           <span className="pill" style={{background:"#e6f2f3",color:"var(--ocean-d)"}}>Aprobado por {rec.aprobadoPor}</span>}
       </div>
     </div>
+    {!rec.cerrado && rec.fecha!==hoyISO()
+      && <div className="banner" style={{background:"#fdeceb",borderColor:"#e8b4ae",color:"#9a3324",marginBottom:12}}>
+        <Icon name="alert" size={15}/> Este es el inventario de <b>{rec.fecha}</b>, que quedó sin cerrar. Tienes hasta las <b>10:00am de hoy</b> para terminarlo y cerrarlo — pasada esa hora quedará registrado tal cual está y ya no se podrá editar.</div>}
     {rec.cerrado && rec.aprobado===false
       && <div className="hint" style={{marginBottom:12}}>Ya cerraste el inventario de hoy de esta bodega — queda pendiente de aprobación del Jefe de Operaciones antes de que Gerencia General lo vea. El de mañana se abrirá solo, llevando estas cantidades finales como inicial.</div>}
     {rec.cerrado && rec.aprobado!==false
@@ -1340,18 +1402,18 @@ function InventarioCierre({user,toast,modo}){
       </div>}
     {completo && <div className="card" style={{marginBottom:12,padding:"12px 14px"}}>
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
-      <div className="hint" style={{marginBottom:10}}>Adultos y niños atendidos hoy en esta bodega. Se usa para calcular el consumo promedio por persona.</div>
+      <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega.":"Adultos y niños atendidos hoy en esta bodega."} Se usa para calcular el consumo promedio por persona.</div>
       {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
       {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
         <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
-        <div>{s.adultos} adultos</div><div>{s.ninos} niños</div>
+        <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         {!rec.cerrado && <button className="btn ghost" style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>}
       </div>)}
       {!rec.cerrado && <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
         <select className="inp" style={{width:150}} value={servNombre} onChange={e=>setServNombre(e.target.value)}>
           {invServiciosDisponibles(bodegaObj).map(s=><option key={s} value={s}>{s}</option>)}</select>
         <input className="inp" type="number" min="0" placeholder="Adultos" style={{width:90}} value={servAd} onChange={e=>setServAd(e.target.value)}/>
-        <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>
+        {!esBar && <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>}
         <button className="btn ghost" onClick={agregarServicio}>Agregar</button>
       </div>}
       <div className="hint" style={{marginTop:10}}>Total PAX hoy: <b style={{color:"var(--ink)"}}>{pax}</b></div>
@@ -1423,6 +1485,7 @@ function InventarioServicio({user,toast}){
   const [cargando,setCargando]=useState(true);
   const [guardando,setGuardando]=useState(false);
   const bodegaObj = invBodega(codigo);
+  const esBar = invEsBebidas(bodegaObj);
   const opciones = invServiciosDisponibles(bodegaObj);
   const [servNombre,setServNombre]=useState(opciones[0]);
   const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
@@ -1446,8 +1509,8 @@ function InventarioServicio({user,toast}){
     }catch(e){ toast("No se pudo guardar: "+(e.message||e)); }
     setGuardando(false);
   }
-  function agregarServicio(){ const ad=+servAd||0, ni=+servNi||0;
-    if(!ad&&!ni){ toast("Ingresa al menos adultos o niños."); return; }
+  function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
+    if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
     guardarServicios([...(rec.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni, registradoPor:user.nombre}]);
     setServAd(""); setServNi(""); }
   function quitarServicio(id){ guardarServicios((rec.servicios||[]).filter(s=>s.id!==id)); }
@@ -1461,20 +1524,23 @@ function InventarioServicio({user,toast}){
         {rec.cerrado && <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}><Icon name="lock" size={13} style={{marginRight:4}}/>Inventario cerrado</span>}
       </div>
     </div>
+    {!rec.cerrado && rec.fecha!==hoyISO()
+      && <div className="banner" style={{background:"#fdeceb",borderColor:"#e8b4ae",color:"#9a3324",marginBottom:12}}>
+        <Icon name="alert" size={15}/> Esto es PAX del <b>{rec.fecha}</b>, que quedó sin cerrar. Hay hasta las <b>10:00am de hoy</b> para registrarlo — pasada esa hora ya no se podrá editar.</div>}
     <div className="card" style={{padding:"12px 14px"}}>
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
-      <div className="hint" style={{marginBottom:10}}>Adultos y niños atendidos hoy en esta bodega{invEsBebidas(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
+      <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega":"Adultos y niños atendidos hoy en esta bodega"}{invEsBebidas(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
       {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
       {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
         <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
-        <div>{s.adultos} adultos</div><div>{s.ninos} niños</div>
+        <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         <button className="btn ghost" disabled={guardando} style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>
       </div>)}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
         <select className="inp" style={{width:150}} value={servNombre} onChange={e=>setServNombre(e.target.value)}>
           {opciones.map(s=><option key={s} value={s}>{s}</option>)}</select>
         <input className="inp" type="number" min="0" placeholder="Adultos" style={{width:90}} value={servAd} onChange={e=>setServAd(e.target.value)}/>
-        <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>
+        {!esBar && <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>}
         <button className="btn primary" disabled={guardando} onClick={agregarServicio}>Agregar</button>
       </div>
       <div className="hint" style={{marginTop:10}}>Total PAX hoy: <b style={{color:"var(--ink)"}}>{pax}</b></div>
@@ -1490,7 +1556,7 @@ function InventarioHistorial({user}){
   const [ver,setVer]=useState(null);
   const [cargando,setCargando]=useState(true);
   useEffect(()=>{ if(!codigo){ setCargando(false); return; } setCargando(true);
-    invRegistrosDe(codigo).then(r=>{ setRegs(r.filter(x=>x.cerrado)); setCargando(false); }).catch(()=>setCargando(false)); },[codigo]);
+    invRegistrosDe(codigo).then(r=>{ setRegs(r.filter(x=>x.cerrado || x.bloqueadoPorLimite)); setCargando(false); }).catch(()=>setCargando(false)); },[codigo]);
   if(!bodegas.length) return <div className="empty">No tienes bodegas asignadas.</div>;
   return <div>
     {bodegas.length>1 && <Field label="Bodega"><select className="inp" value={codigo} onChange={e=>setCodigo(e.target.value)}>
@@ -1502,10 +1568,13 @@ function InventarioHistorial({user}){
         <div style={{display:"flex",gap:6}}>
           {r.desviaciones && r.desviaciones.length>0 &&
             <span className="pill" style={{background:"#fdeceb",color:"#9a3324"}}><Icon name="alert" size={12} style={{marginRight:3}}/>{r.desviaciones.length} desviación(es)</span>}
-          <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Cerrado</span>
+          {r.cerrado
+            ? <span className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Cerrado</span>
+            : <span className="pill" style={{background:"#fdeceb",color:"#9a3324"}}><Icon name="alert" size={12} style={{marginRight:3}}/>Vencido sin cerrar</span>}
         </div>
       </div>
-      <div className="meta">Responsable: {r.responsable||"—"} · cerrado por {r.cerradoPor} · {fmtDT(r.cerradoEn)}</div>
+      <div className="meta">Responsable: {r.responsable||"—"} · {r.cerrado?`cerrado por ${r.cerradoPor} · ${fmtDT(r.cerradoEn)}`:"nunca se cerró"}</div>
+      {r.notaLimite && <div className="meta" style={{color:"#9a3324"}}>{r.notaLimite}</div>}
     </div>)}
     {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)}><InventarioDetalle r={ver} user={user}/></Modal>}
   </div>;
@@ -1529,6 +1598,7 @@ function InventarioDetalle({r,user}){
      Antes dependían de mecanismos distintos y algunos veían una versión
      recortada; ahora es una sola forma de visualización para todos. */
   const completo = esGD(user) || esReportero(user) || tienePermiso(user,'resumen');
+  const esBar = invEsBebidas(invBodega(r.bodega));
   const pax = invTotalPax(r);
   const tieneMovimiento = it=>{ if((+it.tp||0)!==0||(+it.tn||0)!==0||(+it.merma||0)!==0) return true;
     const c=invComputeConsumo(it); return c!==null && c!==0; };
@@ -1544,14 +1614,18 @@ function InventarioDetalle({r,user}){
       <div style={{fontWeight:800,fontSize:16}}>{r.bodegaNombre} <span style={{fontWeight:400,color:"var(--muted)",fontSize:13}}>#{r.bodega}</span></div>
       <div className="meta">Fecha: <b>{r.fecha}</b></div>
       <div className="meta">Responsable del conteo: <b>{r.responsable||"—"}</b></div>
-      <div className="meta">Cerrado por <b>{r.cerradoPor||"—"}</b> el {fmtDT(r.cerradoEn)}</div>
+      {r.cerrado
+        ? <div className="meta">Cerrado por <b>{r.cerradoPor||"—"}</b> el {fmtDT(r.cerradoEn)}</div>
+        : <div className="meta">Nunca se cerró.</div>}
+      {r.notaLimite && <div className="banner" style={{background:"#fdeceb",borderColor:"#e8b4ae",color:"#9a3324",marginTop:8}}>
+        <Icon name="alert" size={15}/> {r.notaLimite}</div>}
     </div>
     {completo && <div className="card" style={{marginBottom:12,padding:"10px 14px"}}>
       <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>PAX por servicio — total del día: {pax}</div>
       {(r.servicios||[]).length===0 && <div className="hint">Sin registros de PAX ese día.</div>}
       {(r.servicios||[]).map(s=><div key={s.id} style={{display:"flex",gap:10,fontSize:13,padding:"2px 0"}}>
         <div style={{flex:"1 1 auto",fontWeight:700}}>{s.nombre}</div>
-        <div>{s.adultos} adultos</div><div>{s.ninos} niños</div>
+        <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
       </div>)}
     </div>}
     <input type="text" className="inp inv-noprint" placeholder="Buscar producto o código…" value={q} onChange={e=>setQ(e.target.value)} style={{marginBottom:10}}/>
@@ -1618,6 +1692,7 @@ function InventarioAprobacion({user,toast}){
   }
   useEffect(()=>{ cargar(); },[]);
   async function aprobar(r){
+    if(r.bloqueadoPorLimite){ toast("Ya venció el plazo de las 10am para este cierre — quedó registrado tal cual."); return; }
     try{
       const toSave={...r, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO()};
       await Store.writeOne("Inventario", toSave);
@@ -1627,15 +1702,19 @@ function InventarioAprobacion({user,toast}){
   }
   if(!filas) return <div className="empty">Cargando…</div>;
   return <div>
-    <p className="sub">Cierres del día ya con inventario final y merma, esperando tu revisión. Mientras no des OK o ajustes, Gerencia General no los ve.</p>
+    <p className="sub">Cierres del día ya con inventario final y merma, esperando tu revisión. Mientras no des OK o ajustes, Gerencia General no los ve. Tienes hasta las 10:00am del día siguiente al cierre para revisarlo — pasada esa hora queda registrado tal cual y ya no se puede ajustar ni aprobar.</p>
     {!filas.length && <div className="empty"><div className="e"><Icon name="check" size={44}/></div>No hay cierres pendientes de aprobación.</div>}
     {filas.map(r=><div key={r.id} className="item">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-        <div><b>{r.bodegaNombre}</b><div className="meta">{r.fecha} · responsable {r.responsable||"—"} · cerrado por {r.cerradoPor} el {fmtDT(r.cerradoEn)}</div></div>
-        <div style={{display:"flex",gap:8}}>
-          <button className="btn ghost" onClick={()=>setAjustando(r)}>Ajustar</button>
-          <button className="btn primary" onClick={()=>aprobar(r)}><Icon name="check" size={15} style={{marginRight:6}}/>OK</button>
+        <div><b>{r.bodegaNombre}</b><div className="meta">{r.fecha} · responsable {r.responsable||"—"} · cerrado por {r.cerradoPor} el {fmtDT(r.cerradoEn)}</div>
+          {r.bloqueadoPorLimite && <div className="meta" style={{color:"#9a3324"}}>{r.notaLimite}</div>}
         </div>
+        {r.bloqueadoPorLimite
+          ? <span className="pill" style={{background:"#fdeceb",color:"#9a3324"}}><Icon name="alert" size={12} style={{marginRight:3}}/>Plazo vencido</span>
+          : <div style={{display:"flex",gap:8}}>
+              <button className="btn ghost" onClick={()=>setAjustando(r)}>Ajustar</button>
+              <button className="btn primary" onClick={()=>aprobar(r)}><Icon name="check" size={15} style={{marginRight:6}}/>OK</button>
+            </div>}
       </div>
     </div>)}
     {ajustando && <Modal title={`Ajustar · ${ajustando.bodegaNombre} · ${ajustando.fecha}`} onClose={()=>setAjustando(null)}>
@@ -1652,14 +1731,16 @@ function InventarioAjuste({r,user,toast,onDone}){
   const [servicios,setServicios]=useState(()=>JSON.parse(JSON.stringify(r.servicios||[])));
   const [guardando,setGuardando]=useState(false);
   const bodegaObj = invBodega(r.bodega);
+  const esBar = invEsBebidas(bodegaObj);
   const [servNombre,setServNombre]=useState(invServiciosDisponibles(bodegaObj)[0]);
   const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
   function setFinal(i,v){ setItems(arr=>{ const a=arr.slice(); a[i]={...a[i],final:v===""?null:+v}; return a; }); }
-  function agregarServicio(){ const ad=+servAd||0, ni=+servNi||0;
-    if(!ad&&!ni){ toast("Ingresa al menos adultos o niños."); return; }
+  function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
+    if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
     setServicios(s=>[...s,{id:gid(),nombre:servNombre,adultos:ad,ninos:ni}]); setServAd(""); setServNi(""); }
   function quitarServicio(id){ setServicios(s=>s.filter(x=>x.id!==id)); }
   async function guardar(){
+    if(r.bloqueadoPorLimite){ toast("Ya venció el plazo de las 10am para este cierre — quedó registrado tal cual."); return; }
     setGuardando(true);
     try{
       const toSave = {...r, items, servicios, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO(),
@@ -1676,14 +1757,14 @@ function InventarioAjuste({r,user,toast,onDone}){
       {servicios.length===0 && <div className="hint" style={{marginBottom:8}}>Sin registros de PAX ese día.</div>}
       {servicios.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
         <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
-        <div>{s.adultos} adultos</div><div>{s.ninos} niños</div>
+        <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         <button className="btn ghost" style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>
       </div>)}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
         <select className="inp" style={{width:150}} value={servNombre} onChange={e=>setServNombre(e.target.value)}>
           {invServiciosDisponibles(bodegaObj).map(s=><option key={s} value={s}>{s}</option>)}</select>
         <input className="inp" type="number" min="0" placeholder="Adultos" style={{width:90}} value={servAd} onChange={e=>setServAd(e.target.value)}/>
-        <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>
+        {!esBar && <input className="inp" type="number" min="0" placeholder="Niños" style={{width:90}} value={servNi} onChange={e=>setServNi(e.target.value)}/>}
         <button className="btn ghost" onClick={agregarServicio}>Agregar</button>
       </div>
     </div>
