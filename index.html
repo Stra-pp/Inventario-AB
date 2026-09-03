@@ -1146,14 +1146,24 @@ async function invRegistrosDe(codigo){
    sin tocar lo ya contado, los productos del catálogo que todavía no estén
    en items (inicial 0, sin traslados/merma, final vacío) y guarda el
    resultado para que quede así para todos, no sólo en esta sesión. */
+function invClaveProducto(p){
+  return p && p.codigo ? ("C:"+String(p.codigo).trim().toUpperCase()) : ("N:"+String((p&&p.nombre)||"").trim().toUpperCase());
+}
 async function invSincronizarItems(rec){
   const bod = invBodega(rec.bodega);
   const catalogo = (bod && bod.productos) || [];
-  const presentes = new Set((rec.items||[]).map(i=>i.codigo));
-  const nuevos = catalogo.filter(p=>!presentes.has(p.codigo));
-  if(!nuevos.length) return rec;
-  const itemsNuevos = nuevos.map(p=>({codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null}));
-  const toSave = {...rec, items:[...(rec.items||[]), ...itemsNuevos]};
+  const porClave = new Map((rec.items||[]).map(it=>[invClaveProducto(it), it]));
+  let cambios = false;
+  const itemsFinales = catalogo.map(p=>{
+    const clave = invClaveProducto(p);
+    const existente = porClave.get(clave);
+    if(existente){ porClave.delete(clave); return existente; }
+    cambios = true;
+    return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null};
+  });
+  if(porClave.size>0) cambios = true; // había items que ya no están en el catálogo: se eliminan
+  if(!cambios) return rec;
+  const toSave = {...rec, items:itemsFinales};
   try{ await Store.writeOne("Inventario", toSave); }catch(e){ /* si falla el guardado, se reintenta la próxima vez que se abra */ }
   return toSave;
 }
