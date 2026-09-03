@@ -1138,6 +1138,25 @@ async function invRegistrosDe(codigo){
   await invAnotarVencidos(regs);
   return regs;
 }
+/* Si a un registro TODAVÍA ABIERTO (sin cerrar) le agregaron productos nuevos
+   al catálogo de su bodega después de haberse creado (por Configurar, o
+   automáticamente por un traslado Zeus de un código que no existía),
+   ese registro se queda con la lista vieja para siempre — invAbrirHoy sólo
+   arma la lista completa una vez, al crear. Esto los pone al día agregando,
+   sin tocar lo ya contado, los productos del catálogo que todavía no estén
+   en items (inicial 0, sin traslados/merma, final vacío) y guarda el
+   resultado para que quede así para todos, no sólo en esta sesión. */
+async function invSincronizarItems(rec){
+  const bod = invBodega(rec.bodega);
+  const catalogo = (bod && bod.productos) || [];
+  const presentes = new Set((rec.items||[]).map(i=>i.codigo));
+  const nuevos = catalogo.filter(p=>!presentes.has(p.codigo));
+  if(!nuevos.length) return rec;
+  const itemsNuevos = nuevos.map(p=>({codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null}));
+  const toSave = {...rec, items:[...(rec.items||[]), ...itemsNuevos]};
+  try{ await Store.writeOne("Inventario", toSave); }catch(e){ /* si falla el guardado, se reintenta la próxima vez que se abra */ }
+  return toSave;
+}
 /* Abre (o recupera) el registro del día operativo actual para una bodega. Si
    no existe, lo crea llevando el "Cantidad final" del último día CERRADO
    como "Inicial" de cada producto — la misma regla que ya usan en la
@@ -1154,10 +1173,10 @@ async function invAbrirHoy(codigo, user){
   if(!invLimite10amPasado()){
     const ayer = sumaDiasYMD(hoy,-1);
     const deAyer = regs.find(r=>r.fecha===ayer);
-    if(deAyer && !deAyer.cerrado) return deAyer;
+    if(deAyer && !deAyer.cerrado) return await invSincronizarItems(deAyer);
   }
   const deHoy = regs.find(r=>r.fecha===hoy);
-  if(deHoy) return deHoy;
+  if(deHoy) return deHoy.cerrado ? deHoy : await invSincronizarItems(deHoy);
   const bod = invBodega(codigo);
   const ultimoCerrado = regs.find(r=>r.cerrado);
   const base = (bod && bod.productos) || [];
