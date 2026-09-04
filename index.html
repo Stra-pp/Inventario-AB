@@ -1167,37 +1167,57 @@ async function invSincronizarItems(rec){
   try{ await Store.writeOne("Inventario", toSave); }catch(e){ /* si falla el guardado, se reintenta la próxima vez que se abra */ }
   return toSave;
 }
-/* Abre (o recupera) el registro del día operativo actual para una bodega. Si
-   no existe, lo crea llevando el "Cantidad final" del último día CERRADO
-   como "Inicial" de cada producto — la misma regla que ya usan en la
-   Bitácora de Excel: el inventario final de un día es el inicial (el real
-   consumido) del día siguiente.
-   Plazo de las 10am: si todavía no dan las 10am (hora Ecuador) y el
-   registro de AYER quedó sin cerrar, se sigue entregando ese registro de
-   ayer (para que cocina/bar lo termine y cierre) en vez de abrir uno nuevo
-   de hoy. En cuanto cierran ese registro, o en cuanto pasan las 10am, se
-   pasa a hoy normalmente y el de ayer queda como quedó (ver invAnotarVencidos). */
-async function invAbrirHoy(codigo, user){
-  const hoy = hoyISO();
-  const regs = await invRegistrosDe(codigo);
-  if(!invLimite10amPasado()){
-    const ayer = sumaDiasYMD(hoy,-1);
-    const deAyer = regs.find(r=>r.fecha===ayer);
-    if(deAyer && !deAyer.cerrado) return await invSincronizarItems(deAyer);
-  }
-  const deHoy = regs.find(r=>r.fecha===hoy);
-  if(deHoy) return deHoy.cerrado ? deHoy : await invSincronizarItems(deHoy);
+/* Crea desde cero el registro de una fecha puntual para una bodega, llevando
+   el "Cantidad final" del último día CERRADO (anterior a esa fecha) como
+   "Inicial" de cada producto — la misma regla que ya usan en la Bitácora de
+   Excel: el inventario final de un día es el inicial (el real consumido)
+   del día siguiente. Compartida por invAbrirHoy tanto para abrir hoy como
+   para el registro de ayer que el usuario elige abrir explícitamente. */
+async function invCrearRegistroPara(codigo, user, fecha, regs){
   const bod = invBodega(codigo);
-  const ultimoCerrado = regs.find(r=>r.cerrado);
+  const ultimoCerrado = regs.find(r=>r.cerrado && r.fecha<fecha);
   const base = (bod && bod.productos) || [];
   const items = base.map(p=>{
     const prev = ultimoCerrado && (ultimoCerrado.items||[]).find(x=>x.codigo===p.codigo);
     return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? (+prev.final||0) : 0, tp:0, tn:0, merma:0, final:null};
   });
-  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha:hoy, responsable:user.nombre,
+  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha, responsable:user.nombre,
     items, servicios:[], cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
   await Store.writeOne("Inventario", rec);
   return rec;
+}
+/* Antes de las 10am, dice si tiene sentido ofrecerle al usuario la opción de
+   registrar el día ANTERIOR en vez de hoy: solo cuando ese día de ayer
+   todavía no tiene ningún registro (ni abierto ni cerrado) — si ya existe
+   uno sin cerrar, invAbrirHoy ya lo entrega directo, sin necesidad de elegir. */
+function invPuedeElegirAyer(regs){
+  if(invLimite10amPasado()) return false;
+  const ayer = sumaDiasYMD(hoyISO(),-1);
+  return !regs.find(r=>r.fecha===ayer);
+}
+/* Abre (o recupera) el registro del día operativo para una bodega.
+   Plazo de las 10am: si todavía no dan las 10am (hora Ecuador) y el
+   registro de AYER quedó sin cerrar, se sigue entregando ese registro de
+   ayer (para que cocina/bar lo termine y cierre) en vez de abrir uno nuevo
+   de hoy. Si en cambio ayer nunca se llegó ni a abrir, y el usuario elige
+   explícitamente registrar el de ayer (fechaDeseada:"ayer") — p.ej. porque
+   se les pasó por alto —, se le crea ese registro con fecha de ayer; esa
+   opción deja de estar disponible en cuanto dan las 10am (invPuedeElegirAyer).
+   En cualquier otro caso se abre/crea el de hoy. En cuanto cierran el de
+   ayer, o pasan las 10am, se pasa a hoy normalmente y el de ayer queda como
+   quedó (ver invAnotarVencidos). */
+async function invAbrirHoy(codigo, user, fechaDeseada){
+  const hoy = hoyISO();
+  const regs = await invRegistrosDe(codigo);
+  const ayer = sumaDiasYMD(hoy,-1);
+  if(!invLimite10amPasado()){
+    const deAyer = regs.find(r=>r.fecha===ayer);
+    if(deAyer && !deAyer.cerrado) return await invSincronizarItems(deAyer);
+    if(fechaDeseada==="ayer" && !deAyer) return await invCrearRegistroPara(codigo, user, ayer, regs);
+  }
+  const deHoy = regs.find(r=>r.fecha===hoy);
+  if(deHoy) return deHoy.cerrado ? deHoy : await invSincronizarItems(deHoy);
+  return await invCrearRegistroPara(codigo, user, hoy, regs);
 }
 
 /* ===== Traslados automáticos (Zeus) =====
@@ -1349,11 +1369,28 @@ function InventarioCierre({user,toast,modo}){
   const [guardando,setGuardando]=useState(false);
   const [servNombre,setServNombre]=useState(INV_SERVICIOS_SUGERIDAS[0]);
   const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
+  // Elección, antes de las 10am, entre registrar hoy o el día de ayer (que
+  // todavía no se abrió). Ver invPuedeElegirAyer/invAbrirHoy.
+  const [fechaElegida,setFechaElegida]=useState("hoy");
+  const [opcionAyer,setOpcionAyer]=useState(null); // null=todavía no se sabe, ""=no aplica, "YYYY-MM-DD"=fecha de ayer disponible
   useEffect(()=>{ if(!codigo){ setCargando(false); return; }
-    setCargando(true);
-    invAbrirHoy(codigo,user).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
+    setCargando(true); setFechaElegida("hoy");
+    invRegistrosDe(codigo).then(regs=>{
+      setOpcionAyer(invPuedeElegirAyer(regs) ? sumaDiasYMD(hoyISO(),-1) : "");
+      return invAbrirHoy(codigo,user);
+    }).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
       .catch(e=>{ toast("No se pudo abrir el inventario de hoy: "+(e.message||e)); setCargando(false); });
   },[codigo]);
+  // Cuando el usuario cambia explícitamente la elección hoy/ayer, se
+  // recarga el registro correspondiente (no en la primera carga: esa ya la
+  // hace el efecto de arriba con fechaElegida="hoy" por defecto).
+  const primeraCargaCierre = useRef(true);
+  useEffect(()=>{ if(primeraCargaCierre.current){ primeraCargaCierre.current=false; return; }
+    if(!codigo) return;
+    setCargando(true);
+    invAbrirHoy(codigo,user,fechaElegida).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
+      .catch(e=>{ toast("No se pudo abrir el inventario: "+(e.message||e)); setCargando(false); });
+  },[fechaElegida]);
   if(!bodegas.length) return <div className="empty"><div className="e"><Icon name="box" size={44}/></div>
     Todavía no tienes bodegas asignadas para el inventario.<br/>Pide al Desarrollador que te las asigne en Inventario · Configurar.</div>;
   if(cargando) return <div className="empty">Cargando…</div>;
@@ -1405,6 +1442,13 @@ function InventarioCierre({user,toast,modo}){
   return <div>
     {bodegas.length>1 && <Field label="Bodega"><select className="inp" value={codigo} onChange={e=>setCodigo(e.target.value)}>
       {bodegas.map(b=><option key={b.codigo} value={b.codigo}>{b.nombre}</option>)}</select></Field>}
+    {opcionAyer && <div className="banner" style={{background:"#fff3d6",borderColor:"#e8d9ae",color:"#8a6512",marginBottom:12,flexDirection:"column",alignItems:"stretch",gap:6}}>
+      <div><Icon name="alert" size={15}/> El inventario de <b>{opcionAyer}</b> (ayer) nunca se abrió. Hasta las <b>10:00am de hoy</b> puedes elegir registrarlo en vez del de hoy.</div>
+      <div style={{display:"flex",gap:8}}>
+        <button className={"btn"+(fechaElegida==="hoy"?" primary":" ghost")} onClick={()=>setFechaElegida("hoy")}>Hoy ({hoyISO()})</button>
+        <button className={"btn"+(fechaElegida==="ayer"?" primary":" ghost")} onClick={()=>setFechaElegida("ayer")}>Ayer ({opcionAyer})</button>
+      </div>
+    </div>}
     <div className="card" style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div><b>{rec.bodegaNombre}</b><div className="meta">{fmtDT(rec.fecha+"T00:00:00")==="—"?rec.fecha:rec.fecha}</div></div>
@@ -1518,12 +1562,26 @@ function InventarioServicio({user,toast}){
   const opciones = invServiciosDisponibles(bodegaObj);
   const [servNombre,setServNombre]=useState(opciones[0]);
   const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
+  // Elección, antes de las 10am, entre registrar hoy o el día de ayer (que
+  // todavía no se abrió). Ver invPuedeElegirAyer/invAbrirHoy.
+  const [fechaElegida,setFechaElegida]=useState("hoy");
+  const [opcionAyer,setOpcionAyer]=useState(null);
   useEffect(()=>{ if(!codigo){ setCargando(false); return; }
-    setCargando(true);
-    invAbrirHoy(codigo,user).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
+    setCargando(true); setFechaElegida("hoy");
+    invRegistrosDe(codigo).then(regs=>{
+      setOpcionAyer(invPuedeElegirAyer(regs) ? sumaDiasYMD(hoyISO(),-1) : "");
+      return invAbrirHoy(codigo,user);
+    }).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
       .catch(e=>{ toast("No se pudo abrir el inventario de hoy: "+(e.message||e)); setCargando(false); });
   },[codigo]);
   useEffect(()=>{ setServNombre(opciones[0]); },[codigo]);
+  const primeraCargaServicio = useRef(true);
+  useEffect(()=>{ if(primeraCargaServicio.current){ primeraCargaServicio.current=false; return; }
+    if(!codigo) return;
+    setCargando(true);
+    invAbrirHoy(codigo,user,fechaElegida).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
+      .catch(e=>{ toast("No se pudo abrir el inventario: "+(e.message||e)); setCargando(false); });
+  },[fechaElegida]);
   if(!bodegas.length) return <div className="empty"><div className="e"><Icon name="box" size={44}/></div>
     Todavía no tienes bodegas asignadas para registrar PAX.<br/>Pide al Desarrollador que te las asigne en Inventario · Configurar.</div>;
   if(cargando) return <div className="empty">Cargando…</div>;
@@ -1547,6 +1605,13 @@ function InventarioServicio({user,toast}){
   return <div>
     {bodegas.length>1 && <Field label="Bodega"><select className="inp" value={codigo} onChange={e=>setCodigo(e.target.value)}>
       {bodegas.map(b=><option key={b.codigo} value={b.codigo}>{b.nombre}</option>)}</select></Field>}
+    {opcionAyer && <div className="banner" style={{background:"#fff3d6",borderColor:"#e8d9ae",color:"#8a6512",marginBottom:12,flexDirection:"column",alignItems:"stretch",gap:6}}>
+      <div><Icon name="alert" size={15}/> El PAX de <b>{opcionAyer}</b> (ayer) nunca se abrió. Hasta las <b>10:00am de hoy</b> puedes elegir registrarlo en vez del de hoy.</div>
+      <div style={{display:"flex",gap:8}}>
+        <button className={"btn"+(fechaElegida==="hoy"?" primary":" ghost")} onClick={()=>setFechaElegida("hoy")}>Hoy ({hoyISO()})</button>
+        <button className={"btn"+(fechaElegida==="ayer"?" primary":" ghost")} onClick={()=>setFechaElegida("ayer")}>Ayer ({opcionAyer})</button>
+      </div>
+    </div>}
     <div className="card" style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div><b>{rec.bodegaNombre}</b><div className="meta">{rec.fecha}</div></div>
