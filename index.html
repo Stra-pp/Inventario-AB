@@ -1690,8 +1690,12 @@ function InventarioDetalle({r,user}){
      exactamente el mismo detalle completo: traslados, merma, consumo,
      promedio, PAX, el filtro "solo con movimiento" y la exportación a PDF.
      Antes dependían de mecanismos distintos y algunos veían una versión
-     recortada; ahora es una sola forma de visualización para todos. */
-  const completo = esGD(user) || esReportero(user) || tienePermiso(user,'resumen');
+     recortada; ahora es una sola forma de visualización para todos.
+     El Jefe de Operaciones (esMerma/esJefeOperaciones — hoy Antonio Puga) ya
+     ve todas las bodegas y aprueba/ajusta cada cierre, así que también ve
+     siempre el detalle completo aquí, sin depender de que quede marcado en
+     Configurar → accesosReporte. */
+  const completo = esGD(user) || esMerma(user) || esReportero(user) || tienePermiso(user,'resumen');
   const esBar = invEsBebidas(invBodega(r.bodega));
   const pax = invTotalPax(r);
   const tieneMovimiento = it=>{ if((+it.tp||0)!==0||(+it.tn||0)!==0||(+it.merma||0)!==0) return true;
@@ -1774,6 +1778,7 @@ function InventarioAprobacion({user,toast}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
   const [filas,setFilas]=useState(null);
   const [ajustando,setAjustando]=useState(null);
+  const [viendo,setViendo]=useState(null);
   async function cargar(){
     const bodegas=INV_CFG.bodegas||[];
     const out=[];
@@ -1796,21 +1801,27 @@ function InventarioAprobacion({user,toast}){
   }
   if(!filas) return <div className="empty">Cargando…</div>;
   return <div>
-    <p className="sub">Cierres del día ya con inventario final y merma, esperando tu revisión. Mientras no des OK o ajustes, Gerencia General no los ve. Tienes hasta las 10:00am del día siguiente al cierre para revisarlo — pasada esa hora queda registrado tal cual y ya no se puede ajustar ni aprobar.</p>
+    <p className="sub">Cierres del día ya con inventario final y merma, esperando tu revisión. Mientras no des OK o ajustes, Gerencia General no los ve. Tienes hasta las 10:00am del día siguiente al cierre para revisarlo — pasada esa hora queda registrado tal cual y ya no se puede ajustar ni aprobar. Puedes abrir "Ver inventario" en cualquier momento para revisar el detalle completo antes de decidir.</p>
     {!filas.length && <div className="empty"><div className="e"><Icon name="check" size={44}/></div>No hay cierres pendientes de aprobación.</div>}
     {filas.map(r=><div key={r.id} className="item">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
         <div><b>{r.bodegaNombre}</b><div className="meta">{r.fecha} · responsable {r.responsable||"—"} · cerrado por {r.cerradoPor} el {fmtDT(r.cerradoEn)}</div>
           {r.bloqueadoPorLimite && <div className="meta" style={{color:"#9a3324"}}>{r.notaLimite}</div>}
         </div>
-        {r.bloqueadoPorLimite
-          ? <span className="pill" style={{background:"#fdeceb",color:"#9a3324"}}><Icon name="alert" size={12} style={{marginRight:3}}/>Plazo vencido</span>
-          : <div style={{display:"flex",gap:8}}>
-              <button className="btn ghost" onClick={()=>setAjustando(r)}>Ajustar</button>
-              <button className="btn primary" onClick={()=>aprobar(r)}><Icon name="check" size={15} style={{marginRight:6}}/>OK</button>
-            </div>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button className="btn ghost" onClick={()=>setViendo(r)}><Icon name="filetext" size={15} style={{marginRight:6}}/>Ver inventario</button>
+          {r.bloqueadoPorLimite
+            ? <span className="pill" style={{background:"#fdeceb",color:"#9a3324"}}><Icon name="alert" size={12} style={{marginRight:3}}/>Plazo vencido</span>
+            : <>
+                <button className="btn ghost" onClick={()=>setAjustando(r)}>Ajustar</button>
+                <button className="btn primary" onClick={()=>aprobar(r)}><Icon name="check" size={15} style={{marginRight:6}}/>OK</button>
+              </>}
+        </div>
       </div>
     </div>)}
+    {viendo && <Modal title={`${viendo.bodegaNombre} · ${viendo.fecha}`} onClose={()=>setViendo(null)}>
+      <InventarioDetalle r={viendo} user={user}/>
+    </Modal>}
     {ajustando && <Modal title={`Ajustar · ${ajustando.bodegaNombre} · ${ajustando.fecha}`} onClose={()=>setAjustando(null)}>
       <InventarioAjuste r={ajustando} user={user} toast={toast} onDone={()=>{ setAjustando(null); cargar(); }}/>
     </Modal>}
