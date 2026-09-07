@@ -1220,6 +1220,23 @@ async function invAbrirHoy(codigo, user, fechaDeseada){
   return await invCrearRegistroPara(codigo, user, hoy, regs);
 }
 
+/* Abre (o crea) el registro de una fecha cualquiera, sin la limitación de
+   "solo hoy o ayer" de invAbrirHoy. Pensada para que el Jefe de Operaciones
+   (hoy Antonio Puga, esJefeOperaciones) pueda ingresar retroactivamente el
+   inventario de un día anterior que se pasó por alto, sin importar cuánto
+   tiempo atrás — ver el selector de fecha en InventarioCierre, que solo se
+   muestra a quien tenga esJefeOperaciones(user). Si esa fecha ya tiene
+   registro (abierto o cerrado) lo entrega tal cual — un cerrado queda de
+   solo lectura, igual que en cualquier otra pantalla —; si no existe, lo
+   crea llevando el "Cantidad final" del último día cerrado anterior como
+   "Inicial", igual que invCrearRegistroPara. */
+async function invAbrirFecha(codigo, user, fecha){
+  const regs = await invRegistrosDe(codigo);
+  const existente = regs.find(r=>r.fecha===fecha);
+  if(existente) return existente.cerrado ? existente : await invSincronizarItems(existente);
+  return await invCrearRegistroPara(codigo, user, fecha, regs);
+}
+
 /* ===== Traslados automáticos (Zeus) =====
    La tarea programada de las 8am lee los PDF de "Traslados" del día anterior
    y llama a invAplicarTraslado por cada línea que toque una bodega de A&B.
@@ -1373,8 +1390,13 @@ function InventarioCierre({user,toast,modo}){
   // todavía no se abrió). Ver invPuedeElegirAyer/invAbrirHoy.
   const [fechaElegida,setFechaElegida]=useState("hoy");
   const [opcionAyer,setOpcionAyer]=useState(null); // null=todavía no se sabe, ""=no aplica, "YYYY-MM-DD"=fecha de ayer disponible
+  /* Solo el Jefe de Operaciones (hoy Antonio Puga, esJefeOperaciones) puede
+     ingresar el inventario de CUALQUIER día anterior, no solo ayer — ver
+     invAbrirFecha. fechaLibre vacío = se sigue usando hoy/ayer normalmente. */
+  const puedeFechaLibre = esJefeOperaciones(user);
+  const [fechaLibre,setFechaLibre]=useState("");
   useEffect(()=>{ if(!codigo){ setCargando(false); return; }
-    setCargando(true); setFechaElegida("hoy");
+    setCargando(true); setFechaElegida("hoy"); setFechaLibre("");
     invRegistrosDe(codigo).then(regs=>{
       setOpcionAyer(invPuedeElegirAyer(regs) ? sumaDiasYMD(hoyISO(),-1) : "");
       return invAbrirHoy(codigo,user);
@@ -1386,11 +1408,22 @@ function InventarioCierre({user,toast,modo}){
   // hace el efecto de arriba con fechaElegida="hoy" por defecto).
   const primeraCargaCierre = useRef(true);
   useEffect(()=>{ if(primeraCargaCierre.current){ primeraCargaCierre.current=false; return; }
-    if(!codigo) return;
+    if(!codigo || fechaLibre) return;
     setCargando(true);
     invAbrirHoy(codigo,user,fechaElegida).then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
       .catch(e=>{ toast("No se pudo abrir el inventario: "+(e.message||e)); setCargando(false); });
   },[fechaElegida]);
+  // Selector de "cualquier día anterior" (solo Jefe de Operaciones). Elegir
+  // una fecha carga (o crea) ese registro puntual; volver a vaciar el campo
+  // regresa a hoy/ayer con invAbrirHoy normalmente.
+  const primeraCargaFechaLibre = useRef(true);
+  useEffect(()=>{ if(primeraCargaFechaLibre.current){ primeraCargaFechaLibre.current=false; return; }
+    if(!codigo || !puedeFechaLibre) return;
+    setCargando(true);
+    const abrir = fechaLibre ? invAbrirFecha(codigo,user,fechaLibre) : invAbrirHoy(codigo,user,fechaElegida);
+    abrir.then(r=>{ setRec(JSON.parse(JSON.stringify(r))); setCargando(false); })
+      .catch(e=>{ toast("No se pudo abrir el inventario de esa fecha: "+(e.message||e)); setCargando(false); });
+  },[fechaLibre]);
   if(!bodegas.length) return <div className="empty"><div className="e"><Icon name="box" size={44}/></div>
     Todavía no tienes bodegas asignadas para el inventario.<br/>Pide al Desarrollador que te las asigne en Inventario · Configurar.</div>;
   if(cargando) return <div className="empty">Cargando…</div>;
@@ -1447,6 +1480,13 @@ function InventarioCierre({user,toast,modo}){
       <div style={{display:"flex",gap:8}}>
         <button className={"btn"+(fechaElegida==="hoy"?" primary":" ghost")} onClick={()=>setFechaElegida("hoy")}>Hoy ({hoyISO()})</button>
         <button className={"btn"+(fechaElegida==="ayer"?" primary":" ghost")} onClick={()=>setFechaElegida("ayer")}>Ayer ({opcionAyer})</button>
+      </div>
+    </div>}
+    {puedeFechaLibre && <div className="banner" style={{background:"#eef4f1",borderColor:"#cfe3da",color:"#2f5d4c",marginBottom:12,flexDirection:"column",alignItems:"stretch",gap:6}}>
+      <div><Icon name="calendar" size={15}/> Como Jefe de Operaciones puedes ingresar el inventario de cualquier día anterior.</div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input className="inp" type="date" style={{width:170}} max={hoyISO()} value={fechaLibre} onChange={e=>setFechaLibre(e.target.value)}/>
+        {fechaLibre && <button className="btn ghost" onClick={()=>setFechaLibre("")}>Cancelar</button>}
       </div>
     </div>}
     <div className="card" style={{marginBottom:12}}>
