@@ -1686,14 +1686,15 @@ function InventarioServicio({user,toast}){
 }
 
 /* ===== Pantalla: Historial ===== */
-function InventarioHistorial({user}){
+function InventarioHistorial({user,toast}){
   const bodegas = (INV_CFG.bodegas||[]).filter(b=>inventarioBodegasDe(user).includes(b.codigo));
   const [codigo,setCodigo]=useState(bodegas[0]?bodegas[0].codigo:"");
   const [regs,setRegs]=useState([]);
   const [ver,setVer]=useState(null);
   const [cargando,setCargando]=useState(true);
-  useEffect(()=>{ if(!codigo){ setCargando(false); return; } setCargando(true);
-    invRegistrosDe(codigo).then(r=>{ setRegs(r.filter(x=>x.cerrado || x.bloqueadoPorLimite)); setCargando(false); }).catch(()=>setCargando(false)); },[codigo]);
+  function recargar(){ if(!codigo){ setCargando(false); return; } setCargando(true);
+    invRegistrosDe(codigo).then(r=>{ setRegs(r.filter(x=>x.cerrado || x.bloqueadoPorLimite)); setCargando(false); }).catch(()=>setCargando(false)); }
+  useEffect(recargar,[codigo]);
   if(!bodegas.length) return <div className="empty">No tienes bodegas asignadas.</div>;
   return <div>
     {bodegas.length>1 && <Field label="Bodega"><select className="inp" value={codigo} onChange={e=>setCodigo(e.target.value)}>
@@ -1713,7 +1714,8 @@ function InventarioHistorial({user}){
       <div className="meta">Responsable: {r.responsable||"—"} · {r.cerrado?`cerrado por ${r.cerradoPor} · ${fmtDT(r.cerradoEn)}`:"nunca se cerró"}</div>
       {r.notaLimite && <div className="meta" style={{color:"#9a3324"}}>{r.notaLimite}</div>}
     </div>)}
-    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide><InventarioDetalle r={ver} user={user}/></Modal>}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide>
+      <InventarioDetalle r={ver} user={user} toast={toast} onEliminado={()=>{setVer(null);recargar();}}/></Modal>}
   </div>;
 }
 /* Detalle de un día cerrado. Para Gerencia/Desarrollador/Aprobador (jefaturas
@@ -1724,9 +1726,24 @@ function InventarioHistorial({user}){
    colaboradores de cocina (viendo su propio historial) se mantiene la vista
    simple de siempre: sólo producto y cantidad final, sin cifras de consumo,
    igual que en la pantalla de cierre del día. */
-function InventarioDetalle({r,user}){
+function InventarioDetalle({r,user,toast,onEliminado}){
   const [q,setQ]=useState("");
   const [soloMov,setSoloMov]=useState(false);
+  const [borrando,setBorrando]=useState(false);
+  /* Eliminar un registro es un borrado permanente en SharePoint — sólo
+     Gerencia/Desarrollador lo pueden hacer, y sólo desde aquí (el detalle
+     de un día concreto), nunca en lote. Pide confirmación explícita con el
+     mismo patrón (window.confirm) que ya se usa para borrar una bodega en
+     Configurar. */
+  async function eliminar(){
+    if(!window.confirm(`¿Eliminar definitivamente el registro de ${r.bodegaNombre||r.bodega} del ${r.fecha}? Esta acción no se puede deshacer.`)) return;
+    setBorrando(true);
+    try{ await Store.remove("Inventario", r.id);
+      toast&&toast("Registro eliminado.");
+      onEliminado&&onEliminado(r);
+    }catch(e){ toast&&toast("No se pudo eliminar: "+(e.message||e)); }
+    finally{ setBorrando(false); }
+  }
   /* Cualquiera que pueda abrir el Resumen Gerencial —sea porque está en
      accesosReporte (jefatura puntual, ej. Antonio Puga) o porque se le dio
      el permiso "resumen" desde Configurar → "Qué puede ver cada uno"— ve
@@ -1811,6 +1828,11 @@ function InventarioDetalle({r,user}){
       {r.aprobado===true && <div className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Aprobado por {r.aprobadoPor} el {fmtDT(r.aprobadoEn)}</div>}
       {(r.ajustes||[]).map((a,i)=><div key={i} className="meta" style={{marginTop:6}}>Ajuste realizado por el Jefe de Operaciones — {a.por} · {fmtDT(a.en)}</div>)}
     </div>}
+    {esGD(user) && <div className="inv-noprint" style={{marginTop:14,paddingTop:10,borderTop:"1px solid var(--line)"}}>
+      <button className="btn ghost" style={{color:"#a83232",borderColor:"#e8b4ae"}} disabled={borrando} onClick={eliminar}>
+        <Icon name="trash" size={15} style={{marginRight:6}}/>{borrando?"Eliminando…":"Eliminar este registro"}</button>
+      <div className="hint" style={{marginTop:4}}>Borra permanentemente este cierre de inventario. No se puede deshacer.</div>
+    </div>}
   </div>;
 }
 /* ===== Pantalla: Aprobación de cierres (Jefe de Operaciones — Antonio) =====
@@ -1863,7 +1885,7 @@ function InventarioAprobacion({user,toast}){
       </div>
     </div>)}
     {viendo && <Modal title={`${viendo.bodegaNombre} · ${viendo.fecha}`} onClose={()=>setViendo(null)} wide>
-      <InventarioDetalle r={viendo} user={user}/>
+      <InventarioDetalle r={viendo} user={user} toast={toast} onEliminado={()=>{setViendo(null);cargar();}}/>
     </Modal>}
     {ajustando && <Modal title={`Ajustar · ${ajustando.bodegaNombre} · ${ajustando.fecha}`} onClose={()=>setAjustando(null)}>
       <InventarioAjuste r={ajustando} user={user} toast={toast} onDone={()=>{ setAjustando(null); cargar(); }}/>
@@ -1939,11 +1961,11 @@ function InventarioAjuste({r,user,toast,onDone}){
 /* ===== Pantalla: Resumen Gerencial (solo Gerencia/Desarrollador) =====
    Responde directamente a "cómo quedó el inventario del día anterior":
    una fila por bodega con el último cierre, quién lo hizo y cuándo. */
-function InventarioResumen({user}){
+function InventarioResumen({user,toast}){
   const [filas,setFilas]=useState(null);
   const [ver,setVer]=useState(null);
   const [selFecha,setSelFecha]=useState({}); // bodega.codigo -> fecha elegida en el filtro
-  useEffect(()=>{ (async()=>{
+  async function cargar(){
     const bodegas=INV_CFG.bodegas||[];
     const out=[];
     for(const b of bodegas){
@@ -1958,7 +1980,8 @@ function InventarioResumen({user}){
       out.push({bodega:b, regs, ultimo, hoy, cerradoHoy: !!(hoy&&hoy.cerrado)});
     }
     setFilas(out);
-  })(); },[]);
+  }
+  useEffect(()=>{ cargar(); },[]);
   if(!filas) return <div className="empty">Cargando…</div>;
   if(!filas.length) return <div className="empty">Todavía no hay bodegas configuradas. Ve a Inventario · Configurar.</div>;
   return <div>
@@ -1989,7 +2012,8 @@ function InventarioResumen({user}){
           {regSel && <button className="btn ghost" style={{padding:"4px 10px",fontSize:12.5}} onClick={()=>setVer(regSel)}>Ver</button>}
         </div>}
       </div>; })}
-    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide><InventarioDetalle r={ver} user={user}/></Modal>}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide>
+      <InventarioDetalle r={ver} user={user} toast={toast} onEliminado={()=>{setVer(null);cargar();}}/></Modal>}
   </div>;
 }
 
@@ -2226,8 +2250,8 @@ function Inventario({user,toast}){
     {tab==="cierre" && showCierre && <InventarioCierre user={user} toast={toast} modo={modoCierre}/>}
     {tab==="servicio" && showServicio && <InventarioServicio user={user} toast={toast}/>}
     {tab==="aprobacion" && showAprobacion && <InventarioAprobacion user={user} toast={toast}/>}
-    {tab==="historial" && showHistorial && <InventarioHistorial user={user}/>}
-    {tab==="resumen" && showResumen && <InventarioResumen user={user}/>}
+    {tab==="historial" && showHistorial && <InventarioHistorial user={user} toast={toast}/>}
+    {tab==="resumen" && showResumen && <InventarioResumen user={user} toast={toast}/>}
     {tab==="desviaciones" && showDesviaciones && <InventarioDesviaciones user={user} toast={toast}/>}
     {tab==="conf" && showConf && <InventarioConfig user={user} toast={toast}/>}
   </div>;
