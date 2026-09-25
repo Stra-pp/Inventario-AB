@@ -1225,10 +1225,12 @@ async function invAbrirHoy(codigo, user, fechaDeseada){
 
 /* Abre (o crea) el registro de una fecha cualquiera, sin la limitación de
    "solo hoy o ayer" de invAbrirHoy. Pensada para que el Jefe de Operaciones
-   (hoy Antonio Puga, esJefeOperaciones) pueda ingresar retroactivamente el
-   inventario de un día anterior que se pasó por alto, sin importar cuánto
-   tiempo atrás — ver el selector de fecha en InventarioCierre, que solo se
-   muestra a quien tenga esJefeOperaciones(user). Si esa fecha ya tiene
+   (hoy Antonio Puga, esJefeOperaciones) y el Desarrollador puedan ingresar
+   retroactivamente el inventario de un día anterior que se pasó por alto
+   (o, en el caso del Desarrollador, para pruebas/soporte), sin importar
+   cuánto tiempo atrás — ver el selector de fecha en InventarioCierre, que
+   solo se muestra a quien tenga esJefeOperaciones(user) o esDev(user). Si
+   esa fecha ya tiene
    registro (abierto o cerrado) lo entrega tal cual — un cerrado queda de
    solo lectura, igual que en cualquier otra pantalla —; si no existe, lo
    crea llevando el "Cantidad final" del último día cerrado anterior como
@@ -1393,10 +1395,13 @@ function InventarioCierre({user,toast,modo}){
   // todavía no se abrió). Ver invPuedeElegirAyer/invAbrirHoy.
   const [fechaElegida,setFechaElegida]=useState("hoy");
   const [opcionAyer,setOpcionAyer]=useState(null); // null=todavía no se sabe, ""=no aplica, "YYYY-MM-DD"=fecha de ayer disponible
-  /* Solo el Jefe de Operaciones (hoy Antonio Puga, esJefeOperaciones) puede
-     ingresar el inventario de CUALQUIER día anterior, no solo ayer — ver
-     invAbrirFecha. fechaLibre vacío = se sigue usando hoy/ayer normalmente. */
-  const puedeFechaLibre = esJefeOperaciones(user);
+  /* Sólo el Jefe de Operaciones (hoy Antonio Puga, esJefeOperaciones) y el
+     Desarrollador pueden ingresar el inventario de CUALQUIER día anterior,
+     no solo ayer — ver invAbrirFecha. fechaLibre vacío = se sigue usando
+     hoy/ayer normalmente. El Desarrollador la necesita para pruebas y
+     soporte (ej. reconstruir un cierre puntual); el resto de roles sigue
+     limitado a hoy/ayer como siempre. */
+  const puedeFechaLibre = esJefeOperaciones(user) || esDev(user);
   const [fechaLibre,setFechaLibre]=useState("");
   useEffect(()=>{ if(!codigo){ setCargando(false); return; }
     setCargando(true); setFechaElegida("hoy"); setFechaLibre("");
@@ -1486,7 +1491,7 @@ function InventarioCierre({user,toast,modo}){
       </div>
     </div>}
     {puedeFechaLibre && <div className="banner" style={{background:"#eef4f1",borderColor:"#cfe3da",color:"#2f5d4c",marginBottom:12,flexDirection:"column",alignItems:"stretch",gap:6}}>
-      <div><Icon name="calendar" size={15}/> Como Jefe de Operaciones puedes ingresar el inventario de cualquier día anterior.</div>
+      <div><Icon name="calendar" size={15}/> {esDev(user) ? "Como Desarrollador puedes" : "Como Jefe de Operaciones puedes"} ingresar el inventario de cualquier día anterior.</div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <input className="inp" type="date" style={{width:170}} max={hoyISO()} value={fechaLibre} onChange={e=>setFechaLibre(e.target.value)}/>
         {fechaLibre && <button className="btn ghost" onClick={()=>setFechaLibre("")}>Cancelar</button>}
