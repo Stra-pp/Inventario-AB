@@ -169,6 +169,9 @@ textarea.inp{min-height:88px;resize:vertical}
 @media(min-width:620px){.ovl{align-items:center;padding:20px}}
 .modal{background:#fff;width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:18px;max-height:92vh;overflow:auto}
 @media(min-width:620px){.modal{border-radius:20px}}
+.modal.wide{max-width:600px}
+@media(min-width:900px){.modal.wide{max-width:860px}}
+@media(min-width:1200px){.modal.wide{max-width:1120px}}
 .modal h3{margin:0 0 12px;font-size:18px}
 @media print{
   body *{visibility:hidden}
@@ -822,9 +825,9 @@ function Field({label,req,children,hint}){
     {hint&&<div className="hint">{hint}</div>}</div>;
 }
 
-function Modal({title,onClose,children}){
+function Modal({title,onClose,children,wide}){
   return <div className="ovl" onClick={onClose}>
-    <div className="modal" onClick={e=>e.stopPropagation()}>
+    <div className={"modal"+(wide?" wide":"")} onClick={e=>e.stopPropagation()}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <h3 style={{margin:0}}>{title}</h3>
         <button className="iconbtn" style={{background:"#eee",color:"#333"}} onClick={onClose}><Icon name="x" size={15}/></button>
@@ -1710,7 +1713,7 @@ function InventarioHistorial({user}){
       <div className="meta">Responsable: {r.responsable||"—"} · {r.cerrado?`cerrado por ${r.cerradoPor} · ${fmtDT(r.cerradoEn)}`:"nunca se cerró"}</div>
       {r.notaLimite && <div className="meta" style={{color:"#9a3324"}}>{r.notaLimite}</div>}
     </div>)}
-    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)}><InventarioDetalle r={ver} user={user}/></Modal>}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide><InventarioDetalle r={ver} user={user}/></Modal>}
   </div>;
 }
 /* Detalle de un día cerrado. Para Gerencia/Desarrollador/Aprobador (jefaturas
@@ -1859,7 +1862,7 @@ function InventarioAprobacion({user,toast}){
         </div>
       </div>
     </div>)}
-    {viendo && <Modal title={`${viendo.bodegaNombre} · ${viendo.fecha}`} onClose={()=>setViendo(null)}>
+    {viendo && <Modal title={`${viendo.bodegaNombre} · ${viendo.fecha}`} onClose={()=>setViendo(null)} wide>
       <InventarioDetalle r={viendo} user={user}/>
     </Modal>}
     {ajustando && <Modal title={`Ajustar · ${ajustando.bodegaNombre} · ${ajustando.fecha}`} onClose={()=>setAjustando(null)}>
@@ -1986,7 +1989,7 @@ function InventarioResumen({user}){
           {regSel && <button className="btn ghost" style={{padding:"4px 10px",fontSize:12.5}} onClick={()=>setVer(regSel)}>Ver</button>}
         </div>}
       </div>; })}
-    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)}><InventarioDetalle r={ver} user={user}/></Modal>}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide><InventarioDetalle r={ver} user={user}/></Modal>}
   </div>;
 }
 
