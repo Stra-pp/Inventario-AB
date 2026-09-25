@@ -2084,8 +2084,32 @@ function InventarioConfig({user,toast}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
   const [nuevaBodega,setNuevaBodega]=useState("");
   const [nuevoCodBodega,setNuevoCodBodega]=useState("");
+  const [confirmTexto,setConfirmTexto]=useState("");
+  const [borrandoTodo,setBorrandoTodo]=useState(false);
   async function guardar(){ try{ await invCfgSave(); toast("Configuración de Inventario guardada."); }
     catch(e){ toast("No se pudo guardar: "+(e.message||e)); } }
+  /* Borrado masivo de TODO el historial de "Inventario" (todas las bodegas,
+     todos los días) — para arrancar de cero con datos de prueba. Doble
+     candado porque es irreversible y afecta a todas las bodegas de una:
+     1) sólo Gerencia/Desarrollador ven este botón (esGD, verificado también
+        al renderizar, no sólo aquí); 2) hay que escribir literalmente
+        "ELIMINAR TODO" antes de que el botón se habilite; 3) un
+        window.confirm final con el conteo exacto de registros que se van a
+        borrar, igual que el resto de confirmaciones destructivas de la app. */
+  async function eliminarTodoHistorial(){
+    if(confirmTexto.trim().toUpperCase()!=="ELIMINAR TODO") return;
+    setBorrandoTodo(true);
+    try{
+      const todos = await Store.read("Inventario");
+      if(!todos.length){ toast("No hay registros de inventario para borrar."); return; }
+      if(!window.confirm(`Se van a eliminar PERMANENTEMENTE los ${todos.length} registro(s) de inventario de TODAS las bodegas. Esta acción no se puede deshacer. ¿Continuar?`)) return;
+      let ok=0, fallo=0;
+      for(const r of todos){ try{ await Store.remove("Inventario", r.id); ok++; }catch(e){ fallo++; } }
+      setConfirmTexto("");
+      toast(fallo ? `Eliminados ${ok} de ${todos.length} (${fallo} fallaron — vuelve a intentar).` : `Eliminados los ${ok} registro(s) de inventario.`);
+    }catch(e){ toast("No se pudo completar el borrado: "+(e.message||e)); }
+    finally{ setBorrandoTodo(false); }
+  }
   function addBodega(){ const nombre=nuevaBodega.trim(); const cod=nuevoCodBodega.trim();
     if(!nombre||!cod){ toast("Falta código o nombre de la bodega."); return; }
     if((INV_CFG.bodegas||[]).some(b=>b.codigo===cod)){ toast("Ya existe una bodega con ese código."); return; }
@@ -2171,6 +2195,17 @@ function InventarioConfig({user,toast}){
       </div>
     </div>)}
     {!jefaturasYGerencia.length && <div className="hint">No hay cuentas de jefatura o Gerencia cargadas todavía.</div>}
+    {esGD(user) && <div className="card" style={{marginTop:24,padding:"14px 16px",background:"#fdeceb",borderColor:"#e8b4ae"}}>
+      <h3 style={{marginTop:0,color:"#9a3324"}}><Icon name="alert" size={16} style={{marginRight:6}}/>Zona de riesgo</h3>
+      <p className="hint" style={{marginBottom:10}}>Elimina PERMANENTEMENTE todo el historial de inventario (todas las bodegas, todos los días). Úsalo sólo para arrancar de cero, por ejemplo antes de probar la automatización de traslados. No se puede deshacer — si quieres conservar algo, haz un respaldo antes.</p>
+      <div className="row" style={{gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input className="inp" style={{maxWidth:220}} placeholder='Escribe ELIMINAR TODO' value={confirmTexto} onChange={e=>setConfirmTexto(e.target.value)}/>
+        <button className="btn" style={{background:"#a83232",color:"#fff",borderColor:"#a83232"}}
+          disabled={confirmTexto.trim().toUpperCase()!=="ELIMINAR TODO"||borrandoTodo}
+          onClick={eliminarTodoHistorial}>
+          <Icon name="trash" size={15} style={{marginRight:6}}/>{borrandoTodo?"Eliminando…":"Eliminar todo el historial"}</button>
+      </div>
+    </div>}
   </div>;
 }
 function InventarioConfigBodega({b,toast,onSave,onDel,onChange}){
