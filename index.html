@@ -1568,7 +1568,7 @@ function InventarioCierre({user,toast,modo}){
       </>}
     </div>
     {listados.map(({it,i})=>{ const cons=invComputeConsumo(it); const prom=invComputePromedio(cons,pax);
-      return <div key={it.codigo} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
+      return <div key={it.codigo+"|"+it.nombre} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
         <div style={{flex:"1 1 auto",minWidth:0}}>
           <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:10.5,padding:"1px 6px"}}>NUEVO</span>}</div>
           <div className="meta">#{it.codigo}</div>
@@ -1828,7 +1828,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
     </div>
     <div style={{maxHeight:completo?"none":420,overflowY:completo?"visible":"auto"}}>
       {items.map(it=>{ const cons=invComputeConsumo(it); const prom=invComputePromedio(cons,pax);
-        return <div key={it.codigo} style={{display:"flex",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:12.5}}>
+        return <div key={it.codigo+"|"+it.nombre} style={{display:"flex",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:12.5}}>
           <div style={{flex:"1 1 auto",minWidth:0}}>
             <div style={{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:9.5,padding:"1px 5px"}}>NUEVO</span>}</div>
             <div className="meta" style={{fontSize:10.5}}>#{it.codigo}</div>
@@ -1967,7 +1967,7 @@ function InventarioAjuste({r,user,toast,onDone}){
       <div style={{width:56,textAlign:"right"}}>Inicial</div>
       <div style={{width:64,textAlign:"right"}}>Cant. final</div>
     </div>
-    {items.map((it,i)=><div key={it.codigo} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
+    {items.map((it,i)=><div key={it.codigo+"|"+it.nombre} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
       <div style={{flex:"1 1 auto",minWidth:0}}>
         <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}</div>
         <div className="meta">#{it.codigo}</div>
@@ -2237,7 +2237,9 @@ function InventarioConfigBodega({b,toast,onSave,onDel,onChange}){
   function addProd(){ const c=cod.trim(), n=nom.trim(); if(!c||!n){ toast("Falta código o nombre del producto."); return; }
     if((b.productos||[]).some(p=>p.codigo===c)){ toast("Ya existe un producto con ese código en esta bodega."); return; }
     b.productos=[...(b.productos||[]),{codigo:c,nombre:n,unidad:""}]; setCod(""); setNom(""); onChange(); onSave(); }
-  function delProd(c){ b.productos=(b.productos||[]).filter(p=>p.codigo!==c); onChange(); onSave(); }
+  /* Se borra por posición: puede haber productos sin código o con el mismo código
+     (p.ej. dos presentaciones de WAHOO), y borrar por código se llevaría a ambos. */
+  function delProd(idx){ b.productos=(b.productos||[]).filter((p,j)=>j!==idx); onChange(); onSave(); }
   return <div className="card" style={{marginBottom:10}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setAbierto(!abierto)}>
       <div><b>{b.nombre}</b> <span className="meta">#{b.codigo} · {(b.productos||[]).length} producto(s)</span></div>
@@ -2253,9 +2255,9 @@ function InventarioConfigBodega({b,toast,onSave,onDel,onChange}){
         <button className="btn primary" onClick={addProd}><Icon name="plus" size={15}/></button>
       </div>
       <div style={{maxHeight:260,overflowY:"auto"}}>
-        {(b.productos||[]).map(p=><div key={p.codigo} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
+        {(b.productos||[]).map((p,pi)=><div key={p.codigo+"|"+p.nombre} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
           <div>{p.nombre} <span className="meta">#{p.codigo}</span></div>
-          <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(p.codigo)}><Icon name="trash" size={13}/></button>
+          <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(pi)}><Icon name="trash" size={13}/></button>
         </div>)}
         {!(b.productos||[]).length && <div className="empty">Sin productos todavía.</div>}
       </div>
