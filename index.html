@@ -968,6 +968,13 @@ function invComputeConsumo(it){ const ini=+it.inicial||0, tp=+it.tp||0, tn=+it.t
   const fin = it.final===null||it.final===""||it.final===undefined ? null : +it.final;
   if(fin===null) return null;
   return ini+tp-tn-me-fin; }
+/* Lo disponible del día: inicial + traslados − merma. Mientras no se escriba la
+   "Cantidad final", se muestra esto como cantidad final (igual que en el Excel:
+   si no hubo consumo, lo que queda es lo que había) y el consumo sale en 0. */
+function invDisponible(it){ return (+it.inicial||0)+(+it.tp||0)-(+it.tn||0)-(+it.merma||0); }
+function invFinalVacio(it){ return it.final===null||it.final===""||it.final===undefined; }
+function invFinalVista(it){ return invFinalVacio(it) ? invDisponible(it) : +it.final; }
+function invConsumoVista(it){ return invFinalVacio(it) ? 0 : invComputeConsumo(it); }
 function invFmt(n){ if(n===null||n===undefined||n==="") return "—";
   const v=+n; if(isNaN(v)) return "—"; return (Math.round(v*100)/100).toString(); }
 const INV_SERVICIOS_SUGERIDAS = ["Desayuno","Almuerzo","Cena"];
@@ -1430,7 +1437,7 @@ function InventarioCierre({user,toast,modo}){
     : filtrados.slice().sort((a,b)=> ((+b.it.inicial||0)>0?1:0) - ((+a.it.inicial||0)>0?1:0));
   async function guardar(cerrar){
     const faltantes = rec.items.filter(it=>it.final===null||it.final==="").length;
-    if(cerrar && faltantes>0){ if(!window.confirm(`${faltantes} producto(s) sin "Cantidad final". ¿Cerrar de todas formas?`)) return; }
+    if(cerrar && faltantes>0){ if(!window.confirm(`${faltantes} producto(s) sin "Cantidad final". Se guardará como cantidad final lo disponible (inicial + traslados − merma), es decir, consumo 0. ¿Cerrar de todas formas?`)) return; }
     setGuardando(true);
     try{
       // El responsable del conteo es quien está registrando ahora mismo — no
@@ -1440,7 +1447,8 @@ function InventarioCierre({user,toast,modo}){
          el Resumen hasta que él le dé OK o lo ajuste (ver InventarioAprobacion
          y el filtro por r.aprobado en InventarioResumen/Desviaciones). */
       const esPasado = rec.fecha < hoyISO();
-      let toSave = {...rec, responsable:user.nombre, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn,
+      const recBase = cerrar ? {...rec, items: rec.items.map(it=> invFinalVacio(it) ? {...it, final: Math.round(invDisponible(it)*1000)/1000} : it)} : rec;
+      let toSave = {...recBase, responsable:user.nombre, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn,
         aprobado: cerrar?false:rec.aprobado};
       if(editando){ toSave = {...toSave, editadoPor:user.nombre, editadoEn:nowISO()}; }
       /* Carga/corrección retroactiva (Desarrollador o Jefe de Operaciones en un
@@ -1560,7 +1568,7 @@ function InventarioCierre({user,toast,modo}){
         <div style={{width:60,textAlign:"right"}}>Promedio</div>
       </>}
     </div>
-    {listados.map(({it,i})=>{ const cons=invComputeConsumo(it); const prom=invComputePromedio(cons,pax);
+    {listados.map(({it,i})=>{ const cons=invConsumoVista(it); const prom=invComputePromedio(cons,pax);
       return <div key={it.codigo+"|"+it.nombre} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6}}>
         <div style={{flex:"1 1 auto",minWidth:0}}>
           <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:10.5,padding:"1px 6px"}}>NUEVO</span>}</div>
@@ -1586,8 +1594,9 @@ function InventarioCierre({user,toast,modo}){
           <input className="inp" type="number" inputMode="decimal" style={{width:56,textAlign:"right",padding:"5px 6px"}}
             value={it.merma||""} onChange={e=>setItem(i,{merma:e.target.value===""?0:+e.target.value})}/>
         </>)}
-        {!editable ? <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700}}>{invFmt(it.final)}</div>
+        {!editable ? <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700}}>{invFmt(invFinalVista(it))}</div>
           : <input className="inp" type="number" inputMode="decimal" style={{width:64,textAlign:"right",padding:"5px 6px",fontWeight:700}}
+              placeholder={invFmt(invDisponible(it))}
               value={it.final===null?"":it.final} onChange={e=>setItem(i,{final:e.target.value===""?null:+e.target.value})}/>}
         {completo && <>
           <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700,color:"var(--ocean-d)"}}>{invFmt(cons)}</div>
@@ -1820,7 +1829,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
       </>}
     </div>
     <div style={{maxHeight:completo?"none":420,overflowY:completo?"visible":"auto"}}>
-      {items.map(it=>{ const cons=invComputeConsumo(it); const prom=invComputePromedio(cons,pax);
+      {items.map(it=>{ const cons=invConsumoVista(it); const prom=invComputePromedio(cons,pax);
         return <div key={it.codigo+"|"+it.nombre} style={{display:"flex",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:12.5}}>
           <div style={{flex:"1 1 auto",minWidth:0}}>
             <div style={{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:9.5,padding:"1px 5px"}}>NUEVO</span>}</div>
@@ -1832,7 +1841,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
             <div style={{width:56,textAlign:"right"}}>{invFmt(it.tn)}</div>
             <div style={{width:56,textAlign:"right"}}>{invFmt(it.merma)}</div>
           </>}
-          <div style={{width:56,textAlign:"right",fontWeight:700}}>{invFmt(it.final)}</div>
+          <div style={{width:56,textAlign:"right",fontWeight:700}}>{invFmt(invFinalVista(it))}</div>
           {completo && <>
             <div style={{width:64,textAlign:"right",fontWeight:700,color:"var(--ocean-d)"}}>{invFmt(cons)}</div>
             <div style={{width:60,textAlign:"right",color:"var(--muted)"}}>{prom===null?"—":invFmt(prom)}</div>
