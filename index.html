@@ -1139,9 +1139,11 @@ async function invSincronizarItems(rec){
     cambios = true;
     return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null};
   });
-  if(porClave.size>0) cambios = true; // había items que ya no están en el catálogo: se eliminan
+  // Los ítems creados por un traslado solo para ese día ("item nuevo") se conservan.
+  const soloDelDia = [...porClave.values()].filter(it=>it.soloDia);
+  if(porClave.size>soloDelDia.length) cambios = true; // había items que ya no están en el catálogo: se eliminan
   if(!cambios) return rec;
-  const toSave = {...rec, items:itemsFinales};
+  const toSave = {...rec, items:[...itemsFinales, ...soloDelDia]};
   try{ await Store.writeOne("Inventario", toSave); }catch(e){ /* si falla el guardado, se reintenta la próxima vez que se abra */ }
   return toSave;
 }
@@ -1222,8 +1224,8 @@ async function invAbrirFecha(codigo, user, fecha){
    y llama a invAplicarTraslado por cada línea que toque una bodega de A&B.
    Bodega DESTINO del traslado → Traslados (+) [entra]. Bodega ORIGEN → Traslados (−)
    [sale]. Coincide con la fórmula: consumo = inicial + (+) − (−) − merma − final.
-   Si el código de producto no existe todavía en el catálogo de esa bodega, se
-   crea automáticamente marcado "nuevo" para que alguien lo revise después.
+   Si el código de producto no existe en el catálogo de esa bodega, se agrega
+   solo en el registro de ese día, marcado "(item nuevo)" — el catálogo no cambia.
    Escribe directamente aunque el día ya esté cerrado (es un ajuste autorizado
    del sistema, no una edición manual) y si el registro del día no existe
    todavía lo crea, para no perder el movimiento. */
@@ -1254,21 +1256,9 @@ function invMatchBodegaZeus(nombreZeus){
   });
   return bod ? bod.codigo : null;
 }
-async function invAsegurarProducto(codigoBodega, codigo, nombre, unidad){
-  const bod = invBodega(codigoBodega); if(!bod) return null;
-  bod.productos = bod.productos||[];
-  let p = bod.productos.find(x=>x.codigo===codigo);
-  if(!p){
-    p = {codigo, nombre: (nombre||codigo)+" (NUEVO — revisar)", unidad: unidad||"", nuevo:true, nuevoDesde: hoyISO()};
-    bod.productos.push(p);
-    await invCfgSave();
-  }
-  return p;
-}
 async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, cantidad, signo}){
   const bod = invBodega(codigoBodega); if(!bod) return {ok:false, motivo:"bodega A&B no encontrada: "+codigoBodega};
   if(!codigo) return {ok:false, motivo:"traslado sin código de producto (se registra siempre por código, nunca por nombre)"};
-  await invAsegurarProducto(codigoBodega, codigo, nombre, unidad);
   const regs = await invRegistrosDe(codigoBodega);
   let rec = regs.find(r=>r.fecha===fecha);
   let registroNuevo=false;
@@ -1281,7 +1271,10 @@ async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, 
   }
   const items = rec.items.slice();
   let i = items.findIndex(x=>x.codigo===codigo);
-  if(i<0){ items.push({codigo, nombre: nombre||codigo, unidad: unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null}); i=items.length-1; }
+  /* Si el producto no está en el catálogo de la bodega, se agrega SOLO en el
+     registro de ese día, marcado "(item nuevo)", para no perder el movimiento.
+     No se toca el catálogo: el día siguiente no lo arrastra. */
+  if(i<0){ items.push({codigo, nombre: (nombre||codigo)+" (item nuevo)", unidad: unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null, nuevo:true, soloDia:true}); i=items.length-1; }
   const it = {...items[i]};
   const cant = Math.round((+cantidad||0)*1000)/1000;
   if(signo>0) it.tp = Math.round(((+it.tp||0)+cant)*1000)/1000;
