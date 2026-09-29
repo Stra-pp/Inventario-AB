@@ -1014,6 +1014,13 @@ const INV_SERVICIOS_SUGERIDAS = ["Desayuno","Almuerzo","Cena"];
 const INV_BODEGAS_BEBIDAS = ["08","15"]; // Sunset Bar Bebidas, Bar Villamar
 function invEsBebidas(bodega){ return !!(bodega && (bodega.esBebidas || INV_BODEGAS_BEBIDAS.includes(bodega.codigo))); }
 function invServiciosDisponibles(bodega){ return invEsBebidas(bodega) ? ["Almuerzo","Cena"] : INV_SERVICIOS_SUGERIDAS; }
+/* Las bodegas de bebidas solo tienen Almuerzo y Cena. Antes, el selector
+   mostraba "Almuerzo" pero guardaba "Desayuno" (valor inicial fuera de la
+   lista). Se valida al guardar y, lo ya guardado como Desayuno en una bodega
+   de bebidas, se muestra y se vuelve a guardar como Almuerzo. */
+function invServicioValido(bodega, nombre){ const o=invServiciosDisponibles(bodega); return o.includes(nombre)?nombre:o[0]; }
+function invNombreServicio(bodega, nombre){ return (invEsBebidas(bodega) && nombre==="Desayuno") ? "Almuerzo" : nombre; }
+function invNormServicios(bodega, servicios){ return (servicios||[]).map(x=>({...x, nombre:invNombreServicio(bodega, x.nombre)})); }
 function invTotalPax(rec){ return (rec.servicios||[]).reduce((s,x)=>s+(+x.adultos||0)+(+x.ninos||0),0); }
 function invComputePromedio(consumo,pax){ if(consumo===null||consumo===undefined||!pax) return null; return consumo/pax; }
 
@@ -1268,6 +1275,11 @@ function invBuscarItem(items, p){
   items = items||[];
   const exacto = items.find(x=>(x.codigo||"")===(p.codigo||"") && x.nombre===p.nombre);
   if(exacto) return exacto;
+  /* Mismo nombre (único) antes que mismo código: si se corrige o intercambia el
+     código de un producto en el catálogo, el Inicial se sigue arrastrando del
+     producto correcto y no del que tenía ese código antes. */
+  const mismoNombre = items.filter(x=>x.nombre===p.nombre && !x.soloDia);
+  if(mismoNombre.length===1) return mismoNombre[0];
   if(!p.codigo) return null;
   const mismos = items.filter(x=>x.codigo===p.codigo && !x.soloDia);
   return mismos.length===1 ? mismos[0] : null;
@@ -1563,7 +1575,7 @@ function InventarioCierre({user,toast,modo}){
   const [cargando,setCargando]=useState(true);
   const [q,setQ]=useState("");
   const [guardando,setGuardando]=useState(false);
-  const [servNombre,setServNombre]=useState(INV_SERVICIOS_SUGERIDAS[0]);
+  const [servNombre,setServNombre]=useState("Almuerzo");
   const [servAd,setServAd]=useState(""); const [servNi,setServNi]=useState("");
   // Elección, antes de las 10am, entre registrar hoy o el día de ayer (que
   // todavía no se abrió). Ver invPuedeElegirAyer/invAbrirHoy.
@@ -1628,7 +1640,7 @@ function InventarioCierre({user,toast,modo}){
   function setItem(i,patch){ setRec(r=>{ const items=r.items.slice(); items[i]={...items[i],...patch}; return {...r,items}; }); }
   function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
     if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
-    setRec(r=>({...r, servicios:[...(r.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni, registradoPor:user.nombre, registradoEn:nowISO()}]}));
+    setRec(r=>({...r, servicios:[...(r.servicios||[]), {id:gid(), nombre:invServicioValido(bodegaObj,servNombre), adultos:ad, ninos:ni, registradoPor:user.nombre, registradoEn:nowISO()}]}));
     setServAd(""); setServNi(""); }
   function quitarServicio(id){ setRec(r=>({...r, servicios:(r.servicios||[]).filter(s=>s.id!==id)})); }
   const pax = invTotalPax(rec);
@@ -1681,6 +1693,7 @@ function InventarioCierre({user,toast,modo}){
         // Días anteriores cargados a mano: se guardan las desviaciones, pero no se manda correo.
         if(desv.length && !esPasado) invEnviarAlertaDesviaciones(toSave, desv); // no bloquea el cierre si falla
       }
+      toSave = {...toSave, servicios: invNormServicios(bodegaObj, toSave.servicios)};
       await Store.writeOne("Inventario", toSave);
       /* Cadena: el Inicial de los días siguientes abiertos se recalcula solo.
          Si el siguiente día ya está cerrado, solo el Desarrollador/Jefe de
@@ -1748,7 +1761,7 @@ function InventarioCierre({user,toast,modo}){
       <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega.":"Adultos y niños atendidos hoy en esta bodega."} Se usa para calcular el consumo promedio por persona.</div>
       {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
       {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
-        <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
+        <div style={{fontWeight:700,flex:"1 1 auto"}}>{invNombreServicio(bodegaObj, s.nombre)}</div>
         <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         {editable && <button className="btn ghost" style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>}
       </div>)}
@@ -1867,7 +1880,7 @@ function InventarioServicio({user,toast}){
   async function guardarServicios(servicios){
     setGuardando(true);
     try{
-      const toSave = {...rec, servicios};
+      const toSave = {...rec, servicios: invNormServicios(bodegaObj, servicios)};
       await Store.writeOne("Inventario", toSave);
       setRec(toSave);
       toast("PAX guardado.");
@@ -1876,7 +1889,7 @@ function InventarioServicio({user,toast}){
   }
   function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
     if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
-    guardarServicios([...(rec.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni, registradoPor:user.nombre, registradoEn:nowISO()}]);
+    guardarServicios([...(rec.servicios||[]), {id:gid(), nombre:invServicioValido(bodegaObj,servNombre), adultos:ad, ninos:ni, registradoPor:user.nombre, registradoEn:nowISO()}]);
     setServAd(""); setServNi(""); }
   function quitarServicio(id){ guardarServicios((rec.servicios||[]).filter(s=>s.id!==id)); }
   const pax = invTotalPax(rec);
@@ -1904,7 +1917,7 @@ function InventarioServicio({user,toast}){
       <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega":"Adultos y niños atendidos hoy en esta bodega"}{invEsBebidas(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
       {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
       {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
-        <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
+        <div style={{fontWeight:700,flex:"1 1 auto"}}>{invNombreServicio(bodegaObj, s.nombre)}</div>
         <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         <button className="btn ghost" disabled={guardando} style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>
       </div>)}
@@ -2025,7 +2038,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
       <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>PAX por servicio — total del día: {pax}</div>
       {(r.servicios||[]).length===0 && <div className="hint">Sin registros de PAX ese día.</div>}
       {(r.servicios||[]).map(s=><div key={s.id} style={{display:"flex",gap:10,fontSize:13,padding:"2px 0"}}>
-        <div style={{flex:"1 1 auto",fontWeight:700}}>{s.nombre}</div>
+        <div style={{flex:"1 1 auto",fontWeight:700}}>{invNombreServicio(invBodega(r.bodega), s.nombre)}</div>
         <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         <div className="meta" style={{minWidth:120,textAlign:"right"}}>{s.registradoPor||""}</div>
       </div>)}
@@ -2141,7 +2154,7 @@ function InventarioAprobacion({user,toast}){
    el Jefe de Operaciones" visible al pie del detalle (InventarioDetalle). */
 function InventarioAjuste({r,user,toast,onDone}){
   const [items,setItems]=useState(()=>JSON.parse(JSON.stringify(r.items||[])));
-  const [servicios,setServicios]=useState(()=>JSON.parse(JSON.stringify(r.servicios||[])));
+  const [servicios,setServicios]=useState(()=>invNormServicios(invBodega(r.bodega), JSON.parse(JSON.stringify(r.servicios||[]))));
   const [guardando,setGuardando]=useState(false);
   const bodegaObj = invBodega(r.bodega);
   const esBar = invEsBebidas(bodegaObj);
@@ -2150,7 +2163,7 @@ function InventarioAjuste({r,user,toast,onDone}){
   function setFinal(i,v){ setItems(arr=>{ const a=arr.slice(); a[i]={...a[i],final:v===""?null:+v}; return a; }); }
   function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
     if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
-    setServicios(s=>[...s,{id:gid(),nombre:servNombre,adultos:ad,ninos:ni,registradoPor:user.nombre,registradoEn:nowISO()}]); setServAd(""); setServNi(""); }
+    setServicios(s=>[...s,{id:gid(),nombre:invServicioValido(bodegaObj,servNombre),adultos:ad,ninos:ni,registradoPor:user.nombre,registradoEn:nowISO()}]); setServAd(""); setServNi(""); }
   function quitarServicio(id){ setServicios(s=>s.filter(x=>x.id!==id)); }
   async function guardar(){
     if(r.bloqueadoPorLimite){ toast("Ya venció el plazo de las 10am para este cierre — quedó registrado tal cual."); return; }
@@ -2171,7 +2184,7 @@ function InventarioAjuste({r,user,toast,onDone}){
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
       {servicios.length===0 && <div className="hint" style={{marginBottom:8}}>Sin registros de PAX ese día.</div>}
       {servicios.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
-        <div style={{fontWeight:700,flex:"1 1 auto"}}>{s.nombre}</div>
+        <div style={{fontWeight:700,flex:"1 1 auto"}}>{invNombreServicio(bodegaObj, s.nombre)}</div>
         <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
         <button className="btn ghost" style={{padding:"3px 8px",fontSize:12}} onClick={()=>quitarServicio(s.id)}>✕</button>
       </div>)}
@@ -2406,8 +2419,8 @@ function InventarioConfig({user,toast}){
   const [nuevoCodBodega,setNuevoCodBodega]=useState("");
   const [confirmTexto,setConfirmTexto]=useState("");
   const [borrandoTodo,setBorrandoTodo]=useState(false);
-  async function guardar(){ try{ await invCfgSave(); toast("Configuración de Inventario guardada."); }
-    catch(e){ toast("No se pudo guardar: "+(e.message||e)); } }
+  async function guardar(){ try{ await invCfgSave(); toast("Configuración de Inventario guardada."); return true; }
+    catch(e){ toast("No se pudo guardar: "+(e.message||e)); return false; } }
   /* Borrado masivo de TODO el historial de "Inventario" (todas las bodegas,
      todos los días) — para arrancar de cero con datos de prueba. Doble
      candado porque es irreversible y afecta a todas las bodegas de una:
@@ -2472,7 +2485,7 @@ function InventarioConfig({user,toast}){
       <input className="inp" placeholder="Nombre de la bodega" value={nuevaBodega} onChange={e=>setNuevaBodega(e.target.value)}/>
       <button className="btn primary" onClick={addBodega}><Icon name="plus" size={15}/></button>
     </div>
-    {(INV_CFG.bodegas||[]).map(b=><InventarioConfigBodega key={b.codigo} b={b} toast={toast} onSave={guardar} onDel={()=>delBodega(b.codigo)} onChange={re}/>)}
+    {(INV_CFG.bodegas||[]).map(b=><InventarioConfigBodega key={b.codigo} b={b} user={user} toast={toast} onSave={guardar} onDel={()=>delBodega(b.codigo)} onChange={re}/>)}
     {!(INV_CFG.bodegas||[]).length && <div className="empty">Todavía no hay bodegas. Agrega la primera arriba.</div>}
     <h3>Quién puede llenar cada bodega (cocina/bar — conteo de inventario)</h3>
     <p className="hint" style={{marginBottom:10}}>Gerencia y Desarrollador siempre ven todas las bodegas (Resumen Gerencial). Aquí asignas a colaboradores y jefaturas qué bodega les toca contar.</p>
@@ -2529,14 +2542,64 @@ function InventarioConfig({user,toast}){
     </div>}
   </div>;
 }
-function InventarioConfigBodega({b,toast,onSave,onDel,onChange}){
+/* Cambia el código de un producto del catálogo también en los días ABIERTOS de
+   esa bodega (los cerrados no se tocan). Si el código nuevo ya lo tenía otro
+   producto, se intercambian. Los traslados (+)/(−) se registran por código de
+   Zeus, así que en un intercambio se quedan con su código; inicial, merma y
+   final se quedan con el producto (su nombre). Luego se recalcula el Inicial. */
+async function invCambiarCodigoEnAbiertos(bodega, nombre, viejo, nuevo, otroNombre, quien){
+  const regs = (await invRegistrosDe(bodega)).filter(r=>!r.cerrado);
+  const tocados=[];
+  for(const r of regs){
+    const items=(r.items||[]).map(x=>({...x}));
+    const ia = items.findIndex(x=>x.nombre===nombre && (x.codigo||"")===(viejo||""));
+    const ib = otroNombre!=null ? items.findIndex(x=>x.nombre===otroNombre && (x.codigo||"")===(nuevo||"")) : -1;
+    if(ia<0 && ib<0) continue;
+    if(ia>=0 && ib>=0){ const A=items[ia], B=items[ib];
+      items[ia]={...A, codigo:nuevo, tp:B.tp, tn:B.tn}; items[ib]={...B, codigo:viejo, tp:A.tp, tn:A.tn}; }
+    else if(ia>=0) items[ia]={...items[ia], codigo:nuevo};
+    else items[ib]={...items[ib], codigo:viejo};
+    const rec={...r, items, ajustes:[...(r.ajustes||[]),{por:quien,en:nowISO(),detalle:`Código de ${nombre}: ${viejo||"(sin código)"} → ${nuevo||"(sin código)"}`+(otroNombre!=null?` (intercambiado con ${otroNombre})`:"")}]};
+    await Store.writeOne("Inventario", rec); tocados.push(rec);
+  }
+  tocados.sort((x,y)=>x.fecha<y.fecha?-1:1);
+  if(tocados[0]){ try{ await invPropagarInicial(bodega, tocados[0], {quien}); }catch(e){} }
+  return tocados.map(r=>r.fecha);
+}
+function InventarioConfigBodega({b,user,toast,onSave,onDel,onChange}){
   const [cod,setCod]=useState(""); const [nom,setNom]=useState(""); const [abierto,setAbierto]=useState(false);
+  const [q,setQ]=useState(""); const [edit,setEdit]=useState(null); // {idx, codigo, nombre}
   function addProd(){ const c=cod.trim(), n=nom.trim(); if(!c||!n){ toast("Falta código o nombre del producto."); return; }
     if((b.productos||[]).some(p=>p.codigo===c)){ toast("Ya existe un producto con ese código en esta bodega."); return; }
     b.productos=[...(b.productos||[]),{codigo:c,nombre:n,unidad:""}]; setCod(""); setNom(""); onChange(); onSave(); }
   /* Se borra por posición: puede haber productos sin código o con el mismo código
      (p.ej. dos presentaciones de WAHOO), y borrar por código se llevaría a ambos. */
-  function delProd(idx){ b.productos=(b.productos||[]).filter((p,j)=>j!==idx); onChange(); onSave(); }
+  function delProd(idx){ const p=(b.productos||[])[idx];
+    if(!window.confirm(`¿Quitar ${p?p.nombre:"este producto"} de la lista de esta bodega?`)) return;
+    b.productos=(b.productos||[]).filter((p,j)=>j!==idx); onChange(); onSave(); }
+  async function guardarEdicion(){
+    const prods=(b.productos||[]).slice(); const p=prods[edit.idx]; if(!p){ setEdit(null); return; }
+    const c=edit.codigo.trim(), n=edit.nombre.trim(); if(!n){ toast("El nombre no puede quedar vacío."); return; }
+    const cambiaCod = c!==(p.codigo||""), cambiaNom = n!==p.nombre;
+    if(!cambiaCod && !cambiaNom){ setEdit(null); return; }
+    const jOtro = cambiaCod && c ? prods.findIndex((x,j)=>j!==edit.idx && x.codigo===c) : -1;
+    const otro = jOtro>=0 ? prods[jOtro] : null;
+    if(otro && !window.confirm(`El código ${c} ya lo tiene "${otro.nombre}". ¿Intercambiar los códigos? (${p.nombre} queda con ${c} y ${otro.nombre} con ${p.codigo||"(sin código)"})`)) return;
+    const viejo=p.codigo||"", nombreViejo=p.nombre;
+    prods[edit.idx]={...p, codigo:c, nombre:n};
+    if(otro) prods[jOtro]={...otro, codigo:viejo};
+    b.productos=prods; setEdit(null); onChange();
+    if(!(await onSave())) return;
+    if(cambiaCod){
+      try{ const dias = await invCambiarCodigoEnAbiertos(b.codigo, nombreViejo, viejo, c, otro?otro.nombre:null, (user&&user.nombre)||"Desarrollador");
+        if(dias.length) toast(`Código actualizado también en ${dias.length} día(s) abierto(s).`); }
+      catch(e){ toast("El catálogo se guardó, pero no se pudo actualizar los días abiertos: "+(e.message||e)); }
+    }
+    if(cambiaNom) toast("Nombre actualizado en la lista. Los días ya creados conservan el nombre anterior.");
+  }
+  const lista=(b.productos||[]).map((p,idx)=>({p,idx}));
+  const qq=q.trim().toUpperCase();
+  const filtrada = qq ? lista.filter(({p})=>(p.nombre||"").toUpperCase().includes(qq) || (p.codigo||"").includes(qq)) : lista;
   return <div className="card" style={{marginBottom:10}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setAbierto(!abierto)}>
       <div><b>{b.nombre}</b> <span className="meta">#{b.codigo} · {(b.productos||[]).length} producto(s)</span></div>
@@ -2551,12 +2614,24 @@ function InventarioConfigBodega({b,toast,onSave,onDel,onChange}){
         <input className="inp" placeholder="Nombre del producto" value={nom} onChange={e=>setNom(e.target.value)}/>
         <button className="btn primary" onClick={addProd}><Icon name="plus" size={15}/></button>
       </div>
-      <div style={{maxHeight:260,overflowY:"auto"}}>
-        {(b.productos||[]).map((p,pi)=><div key={p.codigo+"|"+p.nombre} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
-          <div>{p.nombre} <span className="meta">#{p.codigo}</span></div>
-          <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(pi)}><Icon name="trash" size={13}/></button>
-        </div>)}
+      <input className="inp" style={{marginBottom:8}} placeholder="Buscar por nombre o código…" value={q} onChange={e=>setQ(e.target.value)}/>
+      <div style={{maxHeight:360,overflowY:"auto"}}>
+        {filtrada.map(({p,idx})=> edit && edit.idx===idx
+          ? <div key={idx} style={{display:"flex",gap:6,alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)"}}>
+              <input className="inp" style={{maxWidth:110}} value={edit.codigo} onChange={e=>setEdit({...edit,codigo:e.target.value})} placeholder="Código"/>
+              <input className="inp" value={edit.nombre} onChange={e=>setEdit({...edit,nombre:e.target.value})}/>
+              <button className="btn primary" style={{padding:"6px 10px"}} onClick={guardarEdicion}>Guardar</button>
+              <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit(null)}>✕</button>
+            </div>
+          : <div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
+              <div>{p.nombre} <span className="meta">#{p.codigo||"sin código"}</span></div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="iconbtn" title="Editar código o nombre" onClick={()=>setEdit({idx,codigo:p.codigo||"",nombre:p.nombre})}><Icon name="edit" size={13}/></button>
+                <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(idx)}><Icon name="trash" size={13}/></button>
+              </div>
+            </div>)}
         {!(b.productos||[]).length && <div className="empty">Sin productos todavía.</div>}
+        {!!(b.productos||[]).length && !filtrada.length && <div className="hint">Ningún producto coincide con "{q}".</div>}
       </div>
     </div>}
   </div>;
