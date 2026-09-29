@@ -458,6 +458,15 @@ const GraphStore = {
   async read(t){ try{
       const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"GET",null,true);
       return JSON.parse(new TextDecoder().decode(buf)); }catch{ return []; } },
+  /* Igual que read, pero NO se traga los errores: devuelve null solo si el
+     archivo no existe (404) y lanza el error en cualquier otro caso (sin red,
+     tiempo agotado, 429, 5xx, token aún no listo...). Así quien la usa puede
+     distinguir "no hay configuración" de "no se pudo leer". */
+  async readStrict(t){
+    let buf;
+    try{ buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"GET",null,true); }
+    catch(e){ if(/: 404/.test(e.message||"")) return null; throw e; }
+    return JSON.parse(new TextDecoder().decode(buf)); },
   async write(t,arr){
     const buf=new TextEncoder().encode(JSON.stringify(arr));
     await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
@@ -952,10 +961,34 @@ function tienePermiso(u, clave){
   return (p && clave in p) ? !!p[clave] : permisoDefecto(u, clave);
 }
 function invBodega(codigo){ return (INV_CFG.bodegas||[]).find(b=>b.codigo===codigo); }
-async function invCfgRead(){ let c; try{ c=await Store.read("Inventario_Config"); }catch{ c=null; }
+/* Antes, si la lectura de la configuración fallaba por cualquier motivo
+   (red lenta, límite de Microsoft, token aún no listo), se trataba como "no
+   hay configuración" y al abrir la app se volvía a cargar el catálogo de
+   ejemplo (INV_SEED_BODEGAS) ENCIMA del real — por eso las bodegas volvían
+   solas a la lista vieja de productos. Ahora:
+   - invCfgRead lanza error si no pudo leer, y devuelve null SOLO si el
+     archivo de configuración no existe todavía.
+   - invCfgSave se niega a guardar si otro dispositivo guardó una versión más
+     nueva desde que esta pestaña la cargó (campo "rev"), para que una pestaña
+     vieja abierta no pise los cambios. */
+let INV_CFG_REV_BASE = null;
+async function invCfgRead(){
+  if(MODE!=="graph"){ const c=Local.read("Inventario_Config"); return (!c||Array.isArray(c))?null:c; }
+  const c = await GraphStore.readStrict("Inventario_Config");
   if(!c || Array.isArray(c)) return null; return c; }
-async function invCfgSave(){ await Store.write("Inventario_Config", INV_CFG); }
+async function invCfgSave(){
+  if(MODE==="graph"){
+    const remota = await invCfgRead(); // si no se puede leer, no se guarda (lanza el error)
+    const revRemota = remota ? (+remota.rev||0) : 0;
+    // Tampoco se guarda si esta pestaña nunca llegó a leer la configuración real.
+    if(remota && (INV_CFG_REV_BASE===null || revRemota!==INV_CFG_REV_BASE))
+      throw new Error("La configuración fue cambiada desde otro dispositivo o pestaña. Recarga la app (Ctrl+Shift+R) y vuelve a hacer el cambio.");
+    INV_CFG.rev = revRemota+1;
+  }
+  await Store.write("Inventario_Config", INV_CFG);
+  INV_CFG_REV_BASE = +INV_CFG.rev||0; }
 function applyInvConfig(cfg){ if(!cfg) return;
+  INV_CFG_REV_BASE = +cfg.rev||0;
   if(Array.isArray(cfg.bodegas)) INV_CFG.bodegas=cfg.bodegas;
   if(cfg.accesos) INV_CFG.accesos=cfg.accesos;
   if(cfg.accesosServicio) INV_CFG.accesosServicio=cfg.accesosServicio;
@@ -2337,14 +2370,13 @@ function App(){
   const toast=m=>{ setToastMsg(m); const dur=/no se pudo|error|❌|403|falló/i.test(m)?8000:2600; setTimeout(()=>setToastMsg(""),dur); };
   useEffect(()=>{ (async()=>{
     if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
-      if(ok){ try{ applyInvConfig(await invCfgRead());
-          /* Si el catálogo de bodegas está vacío en SharePoint, se vuelve a
-             cargar SIEMPRE (no depende de una marca en localStorage de este
-             navegador) — así "empezar de cero" funciona igual sin importar
-             desde qué dispositivo se abra la app primero. */
-          if(!(INV_CFG.bodegas&&INV_CFG.bodegas.length)){
-            INV_CFG.bodegas=INV_SEED_BODEGAS; await invCfgSave(); }
-        }catch(e){}
+      if(ok){ try{ const cfgLeida = await invCfgRead();
+          applyInvConfig(cfgLeida);
+          /* El catálogo de ejemplo se carga SOLO si el archivo de configuración
+             no existe. Si la lectura falla, no se toca nada (ver invCfgRead). */
+          if(cfgLeida===null){ // el archivo de configuración no existe: primera vez
+            INV_CFG.bodegas=INV_SEED_BODEGAS; INV_CFG_REV_BASE=0; await invCfgSave(); }
+        }catch(e){ toast("No se pudo leer la configuración de Inventario ("+(e.message||e)+"). Recarga la página; no se cambió nada."); }
         setCfgVer(v=>v+1);
       }
     }
