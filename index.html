@@ -1104,6 +1104,59 @@ async function invEnviarAlertaDesviaciones(rec, desviaciones){
   }catch(e){ return {enviado:false, error:e.message||String(e)}; }
 }
 
+/* ===== Reporte diario de las 10:00am =====
+   A partir de las 10:00 (hora Ecuador) se manda UNA vez al día, al correo de
+   Configurar → Alertas, el resumen del día anterior por bodega: si se cerró,
+   quién hizo el conteo, quién registró el PAX, quién aprobó, ajustes y
+   desviaciones. La app es una página web (no un servidor), así que el envío lo
+   hace la primera sesión abierta después de las 10:00; para que no salga
+   repetido desde dos dispositivos, primero se marca el día como enviado en la
+   configuración (con el control de versión de invCfgSave) y solo quien logra
+   guardar esa marca envía el correo. */
+function invEmailReporteDiario(fecha, filas){
+  const td = 'style="padding:5px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;vertical-align:top"';
+  const cuerpo = filas.map(f=>`<tr><td ${td}><b>${f.bodega}</b></td><td ${td}>${f.estado}</td><td ${td}>${f.responsable}</td>
+    <td ${td}>${f.pax}</td><td ${td}>${f.aprobado}</td><td ${td}>${f.notas}</td></tr>`).join("");
+  const th = 'style="text-align:left;padding:5px 8px;border-bottom:2px solid #2a6f77;font-size:13px"';
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a">
+    <p>Resumen del inventario de A&amp;B del día <b>${fecha}</b> (cierre hasta las 10:00am de hoy).</p>
+    <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr>
+      <th ${th}>Bodega</th><th ${th}>Estado</th><th ${th}>Conteo (responsable)</th><th ${th}>PAX</th><th ${th}>Aprobación</th><th ${th}>Notas</th></tr></thead>
+      <tbody>${cuerpo}</tbody></table>
+    <p style="color:#8a8578;font-size:12px;margin-top:14px">Reporte automático de Inventario A&amp;B.</p></div>`;
+}
+async function invEnviarReporteDiario(){
+  if(MODE!=="graph" || !invLimite10amPasado()) return {enviado:false};
+  const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
+  applyInvConfig(cfgRemota);
+  const al = INV_CFG.alertas||{};
+  const ayer = sumaDiasYMD(hoyISO(),-1);
+  if(!al.activo || !al.correo || al.ultimoReporteDiario===ayer) return {enviado:false};
+  // 1) marcar como enviado (si otro dispositivo se adelantó, invCfgSave falla y aquí se detiene)
+  INV_CFG.alertas = {...al, ultimoReporteDiario:ayer};
+  await invCfgSave();
+  // 2) armar y enviar
+  const regs = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.fecha===ayer));
+  const filas = (INV_CFG.bodegas||[]).map(b=>{
+    const r = regs.find(x=>x.bodega===b.codigo);
+    if(!r) return {bodega:b.nombre, estado:"Sin registro", responsable:"—", pax:"—", aprobado:"—", notas:"No se tomó inventario ese día."};
+    const quienesPax = [...new Set((r.servicios||[]).map(s=>s.registradoPor).filter(Boolean))].join(", ");
+    return {bodega:b.nombre,
+      estado: r.cerrado ? `Cerrado por ${r.cerradoPor||"—"} (${fmtDT(r.cerradoEn)})` : "Sin cerrar",
+      responsable: r.responsable||"—",
+      pax: `${invTotalPax(r)}${quienesPax?` — ${quienesPax}`:""}`,
+      aprobado: r.aprobado===true ? `${r.aprobadoPor||"—"}` : (r.cerrado ? "Pendiente" : "—"),
+      notas: [r.notaLimite||"", (r.ajustes||[]).length?`Ajustado por ${[...new Set(r.ajustes.map(a=>a.por))].join(", ")}`:"",
+              (r.desviaciones||[]).length?`${r.desviaciones.length} desviación(es)`:""].filter(Boolean).join(" · ")||"—"};
+  });
+  await gfetch("/me/sendMail","POST",{message:{
+    subject:`Inventario A&B — resumen del ${ayer}`,
+    body:{contentType:"HTML", content:invEmailReporteDiario(ayer, filas)},
+    toRecipients:[{emailAddress:{address:al.correo}}]
+  }, saveToSentItems:true});
+  return {enviado:true};
+}
+
 /* ===== Plazo de las 10am para cerrar/aprobar el inventario del día anterior =====
    Cocina/Bar tiene hasta las 10:00 (hora Ecuador) del día siguiente para
    guardar Y cerrar el inventario de un día; el Jefe de Operaciones (hoy
@@ -1150,8 +1203,21 @@ async function invAnotarVencidos(regs){
   }
   return regs;
 }
+/* Si por el problema anterior quedaron dos registros del mismo día, toda la app
+   usa uno solo: el cerrado, o el que tiene más datos, o el editado más reciente.
+   El otro queda en SharePoint sin tocar, pero no se muestra ni se usa. */
+function invPesoRegistro(r){
+  const datos=(r.items||[]).filter(i=>!invFinalVacio(i)||(+i.inicial||0)||(+i.tp||0)||(+i.tn||0)||(+i.merma||0)).length;
+  return (r.cerrado?1e9:0) + datos*1000 + (r.servicios||[]).length*10;
+}
+function invSinDuplicados(regs){
+  const porDia=new Map();
+  for(const r of regs){ const k=r.bodega+"|"+r.fecha; const a=porDia.get(k);
+    if(!a || invPesoRegistro(r)>invPesoRegistro(a) || (invPesoRegistro(r)===invPesoRegistro(a) && (r.editadoEn||r.creadoEn||"")>(a.editadoEn||a.creadoEn||""))) porDia.set(k,r); }
+  return regs.filter(r=>porDia.get(r.bodega+"|"+r.fecha)===r);
+}
 async function invRegistrosDe(codigo){
-  const all = await Store.read("Inventario");
+  const all = invSinDuplicados(await Store.read("Inventario"));
   const regs = all.filter(r=>r.bodega===codigo).sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
   await invAnotarVencidos(regs);
   return regs;
@@ -1203,11 +1269,67 @@ function invBuscarItem(items, p){
   const exacto = items.find(x=>(x.codigo||"")===(p.codigo||"") && x.nombre===p.nombre);
   if(exacto) return exacto;
   if(!p.codigo) return null;
-  const mismos = items.filter(x=>x.codigo===p.codigo);
+  const mismos = items.filter(x=>x.codigo===p.codigo && !x.soloDia);
   return mismos.length===1 ? mismos[0] : null;
 }
-async function invCrearRegistroPara(codigo, user, fecha, regs){
+/* Cadena de inventario: el Inicial de cada día es la Cantidad final del día
+   anterior (o lo disponible si ese día todavía no tiene final). Cuando se
+   guarda o se cierra un día —o le entra un traslado, o Antonio lo ajusta— se
+   recalcula el Inicial de TODOS los días siguientes que sigan abiertos, en
+   orden, hasta topar con un día cerrado. Así no queda ningún día "cortado"
+   aunque el día siguiente ya se hubiera creado antes (p.ej. por el traslado
+   automático de las 8am). Los días cerrados no se tocan solos: si el cambio
+   los afecta se devuelve en "cerradoAfectado" para que el Desarrollador
+   decida (ver guardar() en InventarioCierre). */
+async function invPropagarInicial(codigo, desde, opts){
+  opts = opts||{};
+  const r3 = v => Math.round(v*1000)/1000;
+  const regs = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.bodega===codigo))
+    .sort((a,b)=>a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0);
+  let prev = desde; const cambiados=[]; let cerradoAfectado=null;
+  for(const r of regs){
+    if(r.fecha<=desde.fecha) continue;
+    let cambio=false;
+    const items=(r.items||[]).map(it=>{ if(it.soloDia) return it;
+      const e=invBuscarItem(prev.items,it); if(!e) return it;
+      const v=r3(invFinalVista(e)); if((+it.inicial||0)!==v){ cambio=true; return {...it, inicial:v}; } return it; });
+    if(r.cerrado && !opts.incluirCerrados){ if(cambio) cerradoAfectado=r.fecha; break; }
+    const nuevo={...r, items};
+    if(cambio){ await Store.writeOne("Inventario", opts.quien ? {...nuevo, editadoPor:opts.quien, editadoEn:nowISO()} : nuevo); cambiados.push(r.fecha); }
+    prev=nuevo;
+    if(r.cerrado) break; // con incluirCerrados solo se corrige ese primer día cerrado
+  }
+  return {cambiados, cerradoAfectado};
+}
+/* Lista legible de lo que cambió entre dos versiones de un día (para la nota
+   de ajuste que queda visible cuando alguien distinto del Desarrollador
+   modifica un inventario). */
+function invDetalleCambios(antes, despues){
+  const out=[]; const campos=[["inicial","Inicial"],["tp","Trasl.+"],["tn","Trasl.−"],["merma","Merma"],["final","Final"]];
+  for(const it of (despues.items||[])){ const a=invBuscarItem((antes&&antes.items)||[], it); if(!a) continue;
+    for(const [k,lab] of campos){ const va=a[k]===null||a[k]===undefined||a[k]===""?null:+a[k], vd=it[k]===null||it[k]===undefined||it[k]===""?null:+it[k];
+      if(va!==vd) out.push(`${it.nombre}: ${lab} ${va===null?"—":va} → ${vd===null?"—":vd}`); } }
+  const pa=invTotalPax(antes||{}), pd=invTotalPax(despues);
+  if(pa!==pd) out.push(`PAX ${pa} → ${pd}`);
+  return out;
+}
+/* Dos llamadas casi simultáneas para el mismo día (p.ej. al cambiar de bodega
+   con una fecha elegida en el selector se disparan dos cargas a la vez)
+   creaban DOS registros del mismo día. Se comparte la misma creación en curso. */
+const INV_CREANDO = new Map();
+function invCrearRegistroPara(codigo, user, fecha, regs){
+  const k = codigo+"|"+fecha;
+  if(INV_CREANDO.has(k)) return INV_CREANDO.get(k);
+  const p = invCrearRegistroPara_(codigo, user, fecha, regs).finally(()=>INV_CREANDO.delete(k));
+  INV_CREANDO.set(k, p); return p;
+}
+async function invCrearRegistroPara_(codigo, user, fecha, regs){
   const bod = invBodega(codigo);
+  /* Antes de crear, se vuelve a leer SIN caché: si otro dispositivo ya creó
+     ese mismo día hace unos segundos se usa ese (así no quedan dos registros
+     del mismo día, como pasó con el 29 de PLAZA PARAÍSO). */
+  const yaExiste = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.bodega===codigo && r.fecha===fecha))[0];
+  if(yaExiste) return yaExiste;
   /* El inicial sale del día ANTERIOR más reciente, esté cerrado o no (si no
      tiene cantidad final escrita, se toma lo disponible, igual que al
      cerrarlo). Antes solo se miraba el último día CERRADO, así que si había
@@ -1218,7 +1340,9 @@ async function invCrearRegistroPara(codigo, user, fecha, regs){
     const prev = anterior && invBuscarItem(anterior.items, p);
     return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? Math.round(invFinalVista(prev)*1000)/1000 : 0, tp:0, tn:0, merma:0, final:null};
   });
-  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha, responsable:user.nombre,
+  /* El responsable se asigna al GUARDAR el conteo (InventarioCierre), no al
+     abrir: abrir el día para mirarlo o para registrar PAX no es contar. */
+  const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha, responsable:"",
     items, servicios:[], cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
   await Store.writeOne("Inventario", rec);
   return rec;
@@ -1350,18 +1474,24 @@ async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, 
    fuera de alcance). */
 async function invAplicarLoteTraslados(lote){
   const resumen = {aplicados:[], nuevosProductos:[], fueraDeAlcance:[], errores:[]};
+  const tocados = new Set();
   for(const t of lote){
     if(!t.codigoBodega){ resumen.fueraDeAlcance.push(t); continue; }
     const bod = invBodega(t.codigoBodega);
     const yaExistia = bod && (bod.productos||[]).some(p=>p.codigo===t.codigo);
     try{
       const r = await invAplicarTraslado(t);
+      if(r.ok) tocados.add(t.codigoBodega+"|"+t.fecha);
       if(r.ok){
         resumen.aplicados.push({...t, registroNuevo:r.registroNuevo});
         if(!yaExistia) resumen.nuevosProductos.push({bodega:t.codigoBodega, codigo:t.codigo, nombre:t.nombre});
       } else resumen.errores.push({...t, motivo:r.motivo});
     }catch(e){ resumen.errores.push({...t, motivo:e.message||String(e)}); }
   }
+  // Un traslado cambia lo disponible de ese día: se pasa al Inicial de los días siguientes abiertos.
+  for(const k of tocados){ const [cb,f]=k.split("|");
+    try{ const rec=invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.bodega===cb && r.fecha===f))[0];
+      if(rec) await invPropagarInicial(cb, rec); }catch(e){} }
   return resumen;
 }
 /* Recibe las filas crudas ya extraídas de los PDF de Zeus (una por línea de
@@ -1434,6 +1564,10 @@ function InventarioCierre({user,toast,modo}){
      el inventario inicial al arrancar de cero) y reabrir un día ya cerrado
      para corregirlo. El resto de usuarios sigue igual que siempre. */
   const puedeEditarTodo = puedeFechaLibre;
+  /* Solo el Desarrollador modifica directamente. Si quien corrige es el Jefe
+     de Operaciones (Antonio), el cambio se guarda pero queda una nota visible
+     en el día ("Ajustado por …", con el detalle de lo que cambió). */
+  const dejaNotaAjuste = puedeEditarTodo && !esDev(user);
   const [fechaLibre,setFechaLibre]=useState("");
   const [editando,setEditando]=useState(false);
   const originalRec = useRef(null);
@@ -1478,7 +1612,7 @@ function InventarioCierre({user,toast,modo}){
   function setItem(i,patch){ setRec(r=>{ const items=r.items.slice(); items[i]={...items[i],...patch}; return {...r,items}; }); }
   function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
     if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
-    setRec(r=>({...r, servicios:[...(r.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni}]}));
+    setRec(r=>({...r, servicios:[...(r.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni, registradoPor:user.nombre, registradoEn:nowISO()}]}));
     setServAd(""); setServNi(""); }
   function quitarServicio(id){ setRec(r=>({...r, servicios:(r.servicios||[]).filter(s=>s.id!==id)})); }
   const pax = invTotalPax(rec);
@@ -1501,9 +1635,18 @@ function InventarioCierre({user,toast,modo}){
          y el filtro por r.aprobado en InventarioResumen/Desviaciones). */
       const esPasado = rec.fecha < hoyISO();
       const recBase = cerrar ? {...rec, items: rec.items.map(it=> invFinalVacio(it) ? {...it, final: Math.round(invDisponible(it)*1000)/1000} : it)} : rec;
-      let toSave = {...recBase, responsable:user.nombre, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn,
+      /* Responsable del conteo = quien llenó el inventario (cocina/bar). Si
+         después guarda el Desarrollador o el Jefe de Operaciones, NO se le
+         reemplaza el nombre: eso queda como ajuste/edición aparte. */
+      const supervisa = esDev(user) || esJefeOperaciones(user);
+      const responsable = (!rec.responsable || !supervisa) ? user.nombre : rec.responsable;
+      let toSave = {...recBase, responsable, cerrado: cerrar?true:rec.cerrado, cerradoPor: cerrar?user.nombre:rec.cerradoPor, cerradoEn: cerrar?nowISO():rec.cerradoEn,
         aprobado: cerrar?false:rec.aprobado};
       if(editando){ toSave = {...toSave, editadoPor:user.nombre, editadoEn:nowISO()}; }
+      if(dejaNotaAjuste && (editando || esPasado)){
+        const detalle = invDetalleCambios(originalRec.current, toSave).filter(d=>!/: Merma /.test(d));
+        if(detalle.length) toSave = {...toSave, ajustes:[...(rec.ajustes||[]), {por:user.nombre, en:nowISO(), detalle}]};
+      }
       /* Carga/corrección retroactiva (Desarrollador o Jefe de Operaciones en un
          día anterior): no se le aplica el plazo de las 10am y, como quien lo
          ingresa es quien aprueba, queda aprobado directamente al cerrarlo. */
@@ -1523,19 +1666,15 @@ function InventarioCierre({user,toast,modo}){
         if(desv.length && !esPasado) invEnviarAlertaDesviaciones(toSave, desv); // no bloquea el cierre si falla
       }
       await Store.writeOne("Inventario", toSave);
-      /* Si ya existe el día siguiente, su "Inicial" debería ser la cantidad final
-         de este día. Se ofrece actualizarlo para que la cadena quede cuadrada. */
-      if(puedeEditarTodo){
-        // El siguiente día que exista (puede haber días sin registro en medio).
-        const siguiente = (await invRegistrosDe(codigo)).filter(r=>r.fecha>toSave.fecha).sort((a,b)=>a.fecha<b.fecha?-1:1)[0];
-        if(siguiente){
-          const nuevoIni = it => { const e = invBuscarItem(toSave.items, it); return e ? Math.round(invFinalVista(e)*1000)/1000 : null; };
-          const cambia = (siguiente.items||[]).some(it=>{ const v=nuevoIni(it); return v!==null && (+it.inicial||0)!==v; });
-          if(cambia && window.confirm(`¿Actualizar también el "Inicial" del ${siguiente.fecha} con las cantidades finales de este día? (Los productos sin cantidad final pasan con lo disponible.)`)){
-            const items = siguiente.items.map(it=>{ const v=nuevoIni(it); return v!==null ? {...it, inicial:v} : it; });
-            await Store.writeOne("Inventario", {...siguiente, items, editadoPor:user.nombre, editadoEn:nowISO()});
-          }
-        }
+      /* Cadena: el Inicial de los días siguientes abiertos se recalcula solo.
+         Si el siguiente día ya está cerrado, solo el Desarrollador/Jefe de
+         Operaciones puede decidir actualizarlo (y queda anotado). */
+      let prop = await invPropagarInicial(codigo, toSave);
+      if(prop.cerradoAfectado && puedeEditarTodo &&
+         window.confirm(`El ${prop.cerradoAfectado} ya está cerrado. ¿Actualizar también su "Inicial" con las cantidades finales de este día?`)){
+        await invPropagarInicial(codigo, toSave, {incluirCerrados:true, quien:user.nombre});
+        const cerr = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.bodega===codigo && r.fecha===prop.cerradoAfectado))[0];
+        if(cerr) await invPropagarInicial(codigo, cerr);
       }
       setRec(toSave); setEditando(false); originalRec.current = JSON.parse(JSON.stringify(toSave));
       toast(cerrar?"Inventario del día cerrado.":(editando?"Cambios guardados.":"Guardado."));
@@ -1721,7 +1860,7 @@ function InventarioServicio({user,toast}){
   }
   function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
     if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
-    guardarServicios([...(rec.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni, registradoPor:user.nombre}]);
+    guardarServicios([...(rec.servicios||[]), {id:gid(), nombre:servNombre, adultos:ad, ninos:ni, registradoPor:user.nombre, registradoEn:nowISO()}]);
     setServAd(""); setServNi(""); }
   function quitarServicio(id){ guardarServicios((rec.servicios||[]).filter(s=>s.id!==id)); }
   const pax = invTotalPax(rec);
@@ -1791,7 +1930,7 @@ function InventarioHistorial({user,toast}){
             : <span className="pill" style={{background:"#fdeceb",color:"#9a3324"}}><Icon name="alert" size={12} style={{marginRight:3}}/>Vencido sin cerrar</span>}
         </div>
       </div>
-      <div className="meta">Responsable: {r.responsable||"—"} · {r.cerrado?`cerrado por ${r.cerradoPor} · ${fmtDT(r.cerradoEn)}`:"nunca se cerró"}</div>
+      <div className="meta">Responsable: {r.responsable||"—"} · {r.cerrado?`cerrado por ${r.cerradoPor} · ${fmtDT(r.cerradoEn)}`:"nunca se cerró"}{r.aprobado===true?` · aprobado por ${r.aprobadoPor}`:(r.cerrado?" · pendiente de aprobación":"")}{(r.ajustes||[]).length?` · ajustado por ${[...new Set(r.ajustes.map(a=>a.por))].join(", ")}`:""}</div>
       {r.notaLimite && <div className="meta" style={{color:"#9a3324"}}>{r.notaLimite}</div>}
     </div>)}
     {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide>
@@ -1855,6 +1994,14 @@ function InventarioDetalle({r,user,toast,onEliminado}){
       {r.cerrado
         ? <div className="meta">Cerrado por <b>{r.cerradoPor||"—"}</b> el {fmtDT(r.cerradoEn)}</div>
         : <div className="meta">Nunca se cerró.</div>}
+      <div className="meta">PAX registrado por: <b>{[...new Set((r.servicios||[]).map(s=>s.registradoPor).filter(Boolean))].join(", ")||"—"}</b></div>
+      <div className="meta">Aprobado por: <b>{r.aprobado===true ? `${r.aprobadoPor||"—"} el ${fmtDT(r.aprobadoEn)}` : (r.cerrado ? "pendiente de aprobación" : "—")}</b></div>
+      {r.editadoPor && <div className="meta">Última edición: <b>{r.editadoPor}</b> el {fmtDT(r.editadoEn)}</div>}
+      {(r.ajustes||[]).map((a,i)=><div key={"aj"+i} className="banner" style={{background:"#fff3d6",borderColor:"#e8d9ae",color:"#8a6512",marginTop:6,flexDirection:"column",alignItems:"stretch",gap:2}}>
+        <div><b>Ajustado por {a.por}</b> el {fmtDT(a.en)}</div>
+        {(a.detalle||[]).slice(0,40).map((d,j)=><div key={j} style={{fontSize:12}}>{d}</div>)}
+        {(a.detalle||[]).length>40 && <div style={{fontSize:12}}>… y {(a.detalle||[]).length-40} cambio(s) más.</div>}
+      </div>)}
       {r.notaLimite && <div className="banner" style={{background:"#fdeceb",borderColor:"#e8b4ae",color:"#9a3324",marginTop:8}}>
         <Icon name="alert" size={15}/> {r.notaLimite}</div>}
     </div>
@@ -1864,6 +2011,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
       {(r.servicios||[]).map(s=><div key={s.id} style={{display:"flex",gap:10,fontSize:13,padding:"2px 0"}}>
         <div style={{flex:"1 1 auto",fontWeight:700}}>{s.nombre}</div>
         <div>{s.adultos} adultos</div>{!esBar && <div>{s.ninos} niños</div>}
+        <div className="meta" style={{minWidth:120,textAlign:"right"}}>{s.registradoPor||""}</div>
       </div>)}
     </div>}
     <input type="text" className="inp inv-noprint" placeholder="Buscar producto o código…" value={q} onChange={e=>setQ(e.target.value)} style={{marginBottom:10}}/>
@@ -1906,7 +2054,6 @@ function InventarioDetalle({r,user,toast,onEliminado}){
     {completo && r.cerrado && <div className="inv-noprint" style={{marginTop:14,paddingTop:10,borderTop:"1px solid var(--line)"}}>
       {r.aprobado===false && <div className="pill" style={{background:"#fff3d6",color:"#8a6512"}}><Icon name="clock" size={13} style={{marginRight:4}}/>Pendiente de aprobación del Jefe de Operaciones</div>}
       {r.aprobado===true && <div className="pill" style={{background:"#e9f7f0",color:"var(--green)"}}>Aprobado por {r.aprobadoPor} el {fmtDT(r.aprobadoEn)}</div>}
-      {(r.ajustes||[]).map((a,i)=><div key={i} className="meta" style={{marginTop:6}}>Ajuste realizado por el Jefe de Operaciones — {a.por} · {fmtDT(a.en)}</div>)}
     </div>}
     {esGD(user) && <div className="inv-noprint" style={{marginTop:14,paddingTop:10,borderTop:"1px solid var(--line)"}}>
       <button className="btn ghost" style={{color:"#a83232",borderColor:"#e8b4ae"}} disabled={borrando} onClick={eliminar}>
@@ -1987,15 +2134,17 @@ function InventarioAjuste({r,user,toast,onDone}){
   function setFinal(i,v){ setItems(arr=>{ const a=arr.slice(); a[i]={...a[i],final:v===""?null:+v}; return a; }); }
   function agregarServicio(){ const ad=+servAd||0, ni=esBar?0:(+servNi||0);
     if(!ad&&!ni){ toast(esBar?"Ingresa la cantidad de adultos.":"Ingresa al menos adultos o niños."); return; }
-    setServicios(s=>[...s,{id:gid(),nombre:servNombre,adultos:ad,ninos:ni}]); setServAd(""); setServNi(""); }
+    setServicios(s=>[...s,{id:gid(),nombre:servNombre,adultos:ad,ninos:ni,registradoPor:user.nombre,registradoEn:nowISO()}]); setServAd(""); setServNi(""); }
   function quitarServicio(id){ setServicios(s=>s.filter(x=>x.id!==id)); }
   async function guardar(){
     if(r.bloqueadoPorLimite){ toast("Ya venció el plazo de las 10am para este cierre — quedó registrado tal cual."); return; }
     setGuardando(true);
     try{
-      const toSave = {...r, items, servicios, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO(),
-        ajustes:[...(r.ajustes||[]), {por:user.nombre, en:nowISO()}]};
+      const nuevo = {...r, items, servicios};
+      const toSave = {...nuevo, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO(),
+        ajustes:[...(r.ajustes||[]), {por:user.nombre, en:nowISO(), detalle:invDetalleCambios(r, nuevo)}]};
       await Store.writeOne("Inventario", toSave);
+      await invPropagarInicial(r.bodega, toSave);
       toast("Ajuste guardado y aprobado — ya está disponible para Gerencia General.");
       onDone();
     }catch(e){ toast("No se pudo guardar el ajuste: "+(e.message||e)); }
@@ -2397,6 +2546,7 @@ function App(){
              no existe. Si la lectura falla, no se toca nada (ver invCfgRead). */
           if(cfgLeida===null){ // el archivo de configuración no existe: primera vez
             INV_CFG.bodegas=INV_SEED_BODEGAS; INV_CFG_REV_BASE=0; await invCfgSave(); }
+          invEnviarReporteDiario().catch(()=>{});
         }catch(e){ toast("No se pudo leer la configuración de Inventario ("+(e.message||e)+"). Recarga la página; no se cambió nada."); }
         setCfgVer(v=>v+1);
       }
@@ -2404,7 +2554,7 @@ function App(){
     setChecking(false);
   })(); },[]);
   useEffect(()=>{ if(MODE!=="graph") return;
-    const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok) setConnected(true); }, 20*60*1000);
+    const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok){ setConnected(true); invEnviarReporteDiario().catch(()=>{}); } }, 20*60*1000);
     return ()=>clearInterval(t);
   },[]);
   function onLogin(u){ sessionStorage.setItem("pp_inv_user",JSON.stringify(u)); setUser(u); }
