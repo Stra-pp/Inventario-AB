@@ -2626,7 +2626,7 @@ function InventarioConfigBodega({b,user,toast,onSave,onDel,onChange}){
           : <div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
               <div>{p.nombre} <span className="meta">#{p.codigo||"sin código"}</span></div>
               <div style={{display:"flex",gap:6}}>
-                <button className="iconbtn" title="Editar código o nombre" onClick={()=>setEdit({idx,codigo:p.codigo||"",nombre:p.nombre})}><Icon name="edit" size={13}/></button>
+                <button className="btn ghost" style={{padding:"5px 10px",fontSize:12.5,background:"#e6f2f3",color:"var(--ocean-d)",borderColor:"#bcdfe2"}} title="Editar código o nombre" onClick={()=>setEdit({idx,codigo:p.codigo||"",nombre:p.nombre})}><Icon name="edit" size={13} style={{marginRight:4}}/>Editar</button>
                 <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(idx)}><Icon name="trash" size={13}/></button>
               </div>
             </div>)}
