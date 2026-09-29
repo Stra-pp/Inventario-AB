@@ -1193,13 +1193,30 @@ async function invSincronizarItems(rec){
    Excel: el inventario final de un día es el inicial (el real consumido)
    del día siguiente. Compartida por invAbrirHoy tanto para abrir hoy como
    para el registro de ayer que el usuario elige abrir explícitamente. */
+/* Busca en una lista de ítems el mismo producto: primero por código+nombre
+   (hay productos sin código, p.ej. ARROZ y UÑA DE CANGREJO, y códigos
+   repetidos, p.ej. las dos presentaciones de WAHOO con 103093); si no, por
+   código solo cuando ese código es único. Antes se buscaba solo por código y
+   los productos sin código se mezclaban entre sí al arrastrar el inicial. */
+function invBuscarItem(items, p){
+  items = items||[];
+  const exacto = items.find(x=>(x.codigo||"")===(p.codigo||"") && x.nombre===p.nombre);
+  if(exacto) return exacto;
+  if(!p.codigo) return null;
+  const mismos = items.filter(x=>x.codigo===p.codigo);
+  return mismos.length===1 ? mismos[0] : null;
+}
 async function invCrearRegistroPara(codigo, user, fecha, regs){
   const bod = invBodega(codigo);
-  const ultimoCerrado = regs.find(r=>r.cerrado && r.fecha<fecha);
+  /* El inicial sale del día ANTERIOR más reciente, esté cerrado o no (si no
+     tiene cantidad final escrita, se toma lo disponible, igual que al
+     cerrarlo). Antes solo se miraba el último día CERRADO, así que si había
+     días intermedios abiertos el inicial salía de un día viejo. */
+  const anterior = regs.filter(r=>r.fecha<fecha).sort((a,b)=>a.fecha<b.fecha?1:-1)[0];
   const base = (bod && bod.productos) || [];
   const items = base.map(p=>{
-    const prev = ultimoCerrado && (ultimoCerrado.items||[]).find(x=>x.codigo===p.codigo);
-    return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? (+prev.final||0) : 0, tp:0, tn:0, merma:0, final:null};
+    const prev = anterior && invBuscarItem(anterior.items, p);
+    return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? Math.round(invFinalVista(prev)*1000)/1000 : 0, tp:0, tn:0, merma:0, final:null};
   });
   const rec = {id:gid(), bodega:codigo, bodegaNombre:bod?bod.nombre:codigo, fecha, responsable:user.nombre,
     items, servicios:[], cerrado:false, creadoPor:user.nombre, creadoEn:nowISO()};
@@ -1506,12 +1523,13 @@ function InventarioCierre({user,toast,modo}){
       /* Si ya existe el día siguiente, su "Inicial" debería ser la cantidad final
          de este día. Se ofrece actualizarlo para que la cadena quede cuadrada. */
       if(puedeEditarTodo){
-        const siguiente = (await invRegistrosDe(codigo)).find(r=>r.fecha===sumaDiasYMD(toSave.fecha,1));
+        // El siguiente día que exista (puede haber días sin registro en medio).
+        const siguiente = (await invRegistrosDe(codigo)).filter(r=>r.fecha>toSave.fecha).sort((a,b)=>a.fecha<b.fecha?-1:1)[0];
         if(siguiente){
-          const finales = new Map(toSave.items.filter(it=>it.final!==null&&it.final!=="").map(it=>[it.codigo,+it.final]));
-          const cambia = (siguiente.items||[]).some(it=>finales.has(it.codigo) && (+it.inicial||0)!==finales.get(it.codigo));
-          if(cambia && window.confirm(`¿Actualizar también el "Inicial" del ${siguiente.fecha} con las cantidades finales de este día?`)){
-            const items = siguiente.items.map(it=> finales.has(it.codigo) ? {...it, inicial:finales.get(it.codigo)} : it);
+          const nuevoIni = it => { const e = invBuscarItem(toSave.items, it); return e ? Math.round(invFinalVista(e)*1000)/1000 : null; };
+          const cambia = (siguiente.items||[]).some(it=>{ const v=nuevoIni(it); return v!==null && (+it.inicial||0)!==v; });
+          if(cambia && window.confirm(`¿Actualizar también el "Inicial" del ${siguiente.fecha} con las cantidades finales de este día? (Los productos sin cantidad final pasan con lo disponible.)`)){
+            const items = siguiente.items.map(it=>{ const v=nuevoIni(it); return v!==null ? {...it, inicial:v} : it; });
             await Store.writeOne("Inventario", {...siguiente, items, editadoPor:user.nombre, editadoEn:nowISO()});
           }
         }
