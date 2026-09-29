@@ -2325,6 +2325,81 @@ function InventarioDesviaciones({user,toast}){
     </div>)}
   </div>;
 }
+/* ===== Corrección puntual: traslados del 25/09/2026 =====
+   Los traslados de ese día se cargaron mal (bodegas centrales confundidas con
+   Sunset y el lote aplicado 2-3 veces). Esta tarjeta —solo para el
+   Desarrollador, en Configurar— muestra qué se va a cambiar y, al pulsar
+   "Aplicar", deja cada bodega exactamente como dicen los documentos Zeus
+   6648–6658. Es idempotente: si se pulsa dos veces, el resultado es el mismo. */
+const INV_CORR_FECHA = "2026-09-25";
+const INV_CORR_DOCS = [
+['6648','08',[[301011,'CERVEZA CLUB VERDE 850CC',144],[301007,'CERVEZA PILSENER LIGHT 1LT',12],[302028,'RON NACIONAL(RIENDA/RIO)',9],[302037,'VODKA NACIONAL (SIBERIAN)',9],[302030,'TEQUILA NACIONAL',9],[302084,'GIN NACIONAL (SOUTH BANK)',4.2],[1091044,'HIERBABUENA',0.35],[201007,'AGUA TONICA 2 LITROS',2],[201051,'GASEOSA COCA COLA 1 LITRO',2],[201057,'GASEOSA SPRITE 1.75 LITROS',2],[104007,'LECHE CONDENSADA',12],[104009,'LECHE EVAPORADA 400ML',5],[105015,'AZUCAR BLANCA',6],[105211,'JUGO DE LIMON SUSCEDANEO 3.75 L',22.5],[105222,'IMPERIAL AGUA MINERAL TORONJA 1.50 LTR',1.5],[105227,'TAJIN CLASICO 142G',2],[1091101,'LIMON MEYER',4.05],[105215,'JUGO SQUIZ 2 LITROS',6],[302022,'LICOR TRIPLE SEC',3.75],[105163,'GRANADINA DE MENTA',4],[106010,'GRANADINA CEREZA',6],[401183,'SORBETES EMPACADOS PAQUETE X100',4],[401227,'REMOVEDOR DE CAFE ECOLOGICO *150',4]]],
+['6649','08',[[301003,'CERVEZA CORONA 330ML',24],[301009,'CERVEZA STELLA 330ML',12],[301002,'CERVEZA CLUB VERDE 330ML',12],[201003,'AGUA DASANI',16],[201018,'FUZE TEA 300ML RETORNABLE',6],[201034,'AGUA MINERAL 330ML NO RETORNABLE',6],[302039,'WHISKY BUCHANANS',0.75],[201022,'COCA COLA 300 ML VIDRIO',6],[201024,'COLA FIORA 300 ML VIDRIO',3]]],
+['6652','08',[[201002,'AGUA BOTELLON 20LTS',6]]],
+['6650','16',[[105157,'MAYONESA EN SACHET DE 7GR',400],[105158,'SALSA DE TOMATE EN SACHET DE 7GR',400],[401025,'ESCOBA CON MANGO DE MADERA',1],[401074,'RECOGEDOR DE BASURA',1],[401416,'TENEDORES DESECHABLES X 50 UNIDADES',10],[401021,'CUCHARAS DESECHABLES PAQUETE X50',6],[401422,'FUNDA PALO SANTO',10],[401050,'PAÑO MICROFIBRA',3],[401049,'PALILLOS DE DIENTES *100 U',2]]],
+['6653','10',[[105027,'CEREAL 350GR',4],[301011,'CERVEZA CLUB VERDE 850CC',12],[1091101,'LIMON MEYER',5],[104027,'YOGURT DURAZNO',7.2],[104029,'YOGURT MORA',3.75],[104008,'LECHE ENTERA',12],[105030,'CHOCOLATE EN POLVO',0.7]]],
+['6654','15',[[108021,'NARANJA',2.75],[108018,'MARACUYA',3.1],[105016,'AZUCAR BLANCA SOBRES',1],[105087,'PIMIENTA EN SACHET 8GR',250],[201002,'AGUA BOTELLON 20LTS',1],[302074,'TEQUILA SOMBRERO NEGRO',0.75],[302038,'VODKA ABSOLUTE',0.7],[301009,'CERVEZA STELLA 330ML',6],[201003,'AGUA DASANI',6],[201022,'COCA COLA 300 ML VIDRIO',6]]],
+['6656','06',[[102024,'LOMO FINO DE 180GR',13],[101008,'POLLO ENTERO SIN MENUDENCIA',4.5],[103082,'ALMEJAS COCIDAS',0.5],[103016,'CORVINA 180GR',18],[103012,'CAMARON IQF 31/35',2],[302056,'VINO BLANCO COCINA CENTRAL',1],[1091069,'PIMIENTO AMARILLO',0.7],[1091070,'PIMIENTO ROJO',0.6],[1091080,'VERDES',15.05],[105091,'SAL COMUN',2],[105010,'ARROZ OSO',9.07],[1091090,'AJI ROJO',0.45],[105132,'HARINA DE PAN',1],[302030,'TEQUILA NACIONAL',0.75],[1091064,'PAPA CHOLA',2.55]]],
+['6658','06',[[102072,'COSTILLA DE CERDO 180G',5],[103033,'PULPA DE CANGREJO',1]]]];
+async function invPlanCorreccion25(){
+  const all = await Store.read("Inventario",{noCache:true}); const plan=[];
+  for(const b of ['08','16','10','15','06']){
+    const rec0 = invSinDuplicados(all.filter(r=>r.bodega===b&&r.fecha===INV_CORR_FECHA))[0];
+    if(!rec0){ plan.push({b, falta:true, cambios:[]}); continue; }
+    const exp={}, keys=[];
+    for(const [n,bb,lines] of INV_CORR_DOCS) if(bb===b) for(const [c,nom,q] of lines){ const k=String(c);
+      exp[k]=exp[k]||{nom,q:0}; exp[k].q=Math.round((exp[k].q+q)*1000)/1000; keys.push([n,k,'+',q].join('|')); }
+    const cat=new Set(((invBodega(b)||{}).productos||[]).map(p=>p.codigo));
+    const corrige=['08','16','10'].includes(b); let items=(rec0.items||[]).map(i=>({...i})); const cambios=[];
+    if(corrige){
+      const visto=new Set();
+      for(const i of items){ const e=exp[i.codigo]; let ntp=e?e.q:0; if(e&&visto.has(i.codigo)) ntp=0; if(e) visto.add(i.codigo);
+        if((+i.tp||0)!==ntp||(+i.tn||0)!==0){ cambios.push(`${i.nombre}: Traslados (+) ${i.tp||0} → ${ntp}, (−) ${i.tn||0} → 0`); i.tp=ntp; i.tn=0; } }
+      items=items.filter(i=>{ const vacia=!(+i.tp)&&!(+i.tn)&&!(+i.merma)&&!(+i.inicial)&&(i.final==null||i.final===''||+i.final===0);
+        if(!cat.has(i.codigo)&&vacia){ cambios.push(`Se quita la línea ${i.nombre}`); return false; } return true; });
+    }
+    for(const [k,e] of Object.entries(exp)) if(!items.some(i=>i.codigo===k)){
+      items.push({codigo:k,nombre:e.nom+' (item nuevo)',unidad:'',inicial:0,tp:e.q,tn:0,merma:0,final:rec0.cerrado?e.q:null,nuevo:true,soloDia:true});
+      cambios.push(`Se agrega ${e.nom} (item nuevo): Traslados (+) ${e.q}`); }
+    plan.push({b, nombre:rec0.bodegaNombre, rec0, items, keys, cambios});
+  }
+  return plan;
+}
+async function invAplicarCorreccion25(plan, quien){
+  const en=nowISO(), log=[];
+  for(const p of plan){ if(p.falta) continue;
+    const rec={...p.rec0, items:p.items, trasladosAplicados:[...new Set([...(p.rec0.trasladosAplicados||[]),...p.keys])]};
+    if(p.cambios.length){ rec.ajustes=[...(p.rec0.ajustes||[]),{por:quien,en,detalle:'Traslados del 25/09 corregidos según documentos Zeus 6648–6658:\n'+p.cambios.join('\n')}]; rec.editadoPor=quien; rec.editadoEn=en; }
+    await Store.writeOne("Inventario", rec); log.push(`${p.nombre}: ${p.cambios.length} cambio(s)`); }
+  for(const b of ['08','16','10']){ try{
+    const rec=invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.bodega===b&&r.fecha===INV_CORR_FECHA))[0];
+    if(!rec) continue; const r=await invPropagarInicial(b, rec, {quien});
+    log.push(`${(invBodega(b)||{}).nombre||b}: Inicial actualizado en ${(r.cambiados||[]).map(f=>f.slice(8)+'/'+f.slice(5,7)).join(', ')||'—'}${r.cerradoAfectado?' (se detuvo en el día cerrado '+r.cerradoAfectado.slice(8)+'/'+r.cerradoAfectado.slice(5,7)+')':''}`);
+  }catch(e){ log.push(b+': error al pasar el Inicial — '+(e.message||e)); } }
+  return log;
+}
+function InventarioCorreccion25({user,toast}){
+  const [plan,setPlan]=useState(null); const [cargando,setCargando]=useState(false); const [log,setLog]=useState(null);
+  async function revisar(){ setCargando(true); try{ setPlan(await invPlanCorreccion25()); setLog(null);}catch(e){toast("No se pudo revisar: "+(e.message||e));} finally{setCargando(false);} }
+  async function aplicar(){ const total=plan.reduce((a,p)=>a+p.cambios.length,0);
+    if(!window.confirm(`Se aplicarán ${total} cambio(s) en los registros del 25/09 y se pasará el Inicial a los días siguientes abiertos. Cada registro queda con la nota del ajuste. ¿Continuar?`)) return;
+    setCargando(true); try{ setLog(await invAplicarCorreccion25(plan, user.nombre||'Desarrollador')); toast("Corrección aplicada."); setPlan(await invPlanCorreccion25()); }
+    catch(e){ toast("No se pudo aplicar: "+(e.message||e)); } finally{ setCargando(false); } }
+  const total = plan ? plan.reduce((a,p)=>a+p.cambios.length,0) : 0;
+  return <div className="card" style={{marginTop:24,padding:"14px 16px"}}>
+    <h3 style={{marginTop:0}}>Corregir traslados del 25/09</h3>
+    <p className="hint" style={{marginBottom:10}}>Deja Sunset Bar Bebidas, Sunset Bar Suministros y Plaza Paraíso exactamente como dicen los traslados 6648–6658, y agrega lo que faltaba en Plaza Paraíso y Bar Villamar. Primero revisa la lista y luego aplica.</p>
+    <div className="row" style={{gap:8,flexWrap:"wrap"}}>
+      <button className="btn" disabled={cargando} onClick={revisar}>{cargando?"Revisando…":"Revisar cambios"}</button>
+      {plan && total>0 && <button className="btn primary" disabled={cargando} onClick={aplicar}>Aplicar {total} cambio(s)</button>}
+    </div>
+    {plan && total===0 && <div className="hint" style={{marginTop:10}}>✓ Todo el 25/09 ya coincide con los documentos. No hay nada que corregir.</div>}
+    {plan && total>0 && plan.filter(p=>p.cambios.length).map(p=><div key={p.b} style={{marginTop:10}}>
+      <b>{p.nombre}</b> — {p.cambios.length} cambio(s)
+      <ul style={{margin:"4px 0 0 18px",fontSize:13}}>{p.cambios.map((c,i)=><li key={i}>{c}</li>)}</ul></div>)}
+    {log && <div style={{marginTop:10,fontSize:13,whiteSpace:"pre-wrap",background:"#e6f2f3",padding:10,borderRadius:8}}>{log.join("\n")}</div>}
+  </div>;
+}
 function InventarioConfig({user,toast}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
   const [nuevaBodega,setNuevaBodega]=useState("");
@@ -2440,6 +2515,7 @@ function InventarioConfig({user,toast}){
       </div>
     </div>)}
     {!jefaturasYGerencia.length && <div className="hint">No hay cuentas de jefatura o Gerencia cargadas todavía.</div>}
+    {esDev(user) && <InventarioCorreccion25 user={user} toast={toast}/>}
     {esGD(user) && <div className="card" style={{marginTop:24,padding:"14px 16px",background:"#fdeceb",borderColor:"#e8b4ae"}}>
       <h3 style={{marginTop:0,color:"#9a3324"}}><Icon name="alert" size={16} style={{marginRight:6}}/>Zona de riesgo</h3>
       <p className="hint" style={{marginBottom:10}}>Elimina PERMANENTEMENTE todo el historial de inventario (todas las bodegas, todos los días). Úsalo sólo para arrancar de cero, por ejemplo antes de probar la automatización de traslados. No se puede deshacer — si quieres conservar algo, haz un respaldo antes.</p>
