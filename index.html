@@ -1321,7 +1321,10 @@ async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, 
   let registroNuevo=false;
   if(!rec){
     const base=(bod.productos||[]);
-    const items=base.map(p=>({codigo:p.codigo,nombre:p.nombre,unidad:p.unidad||"",inicial:0,tp:0,tn:0,merma:0,final:null}));
+    // Igual que invCrearRegistroPara: el inicial se arrastra del día anterior más reciente.
+    const anterior = regs.filter(r=>r.fecha<fecha).sort((a,b)=>a.fecha<b.fecha?1:-1)[0];
+    const items=base.map(p=>{ const prev = anterior && invBuscarItem(anterior.items, p);
+      return {codigo:p.codigo,nombre:p.nombre,unidad:p.unidad||"",inicial: prev ? Math.round(invFinalVista(prev)*1000)/1000 : 0,tp:0,tn:0,merma:0,final:null}; });
     rec = {id:gid(), bodega:codigoBodega, bodegaNombre:bod.nombre, fecha, responsable:"",
       items, servicios:[], cerrado:false, creadoPor:"Traslados (auto)", creadoEn:nowISO()};
     registroNuevo=true;
