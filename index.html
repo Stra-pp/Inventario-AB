@@ -1410,6 +1410,7 @@ async function invAbrirFecha(codigo, user, fecha){
    Escribe directamente aunque el día ya esté cerrado (es un ajuste autorizado
    del sistema, no una edición manual) y si el registro del día no existe
    todavía lo crea, para no perder el movimiento. */
+const INV_BODEGAS_CENTRALES = ["BEBIDAS","SUMINISTROS","ALIMENTOS","GENERAL","CENTRAL","PRINCIPAL"];
 function invMatchBodegaZeus(nombreZeus){
   if(!nombreZeus) return null;
   const norm = s => s.toString().toUpperCase()
@@ -1427,17 +1428,24 @@ function invMatchBodegaZeus(nombreZeus){
   const tokenSet = s => tokens(s).sort().join(" ");
   const isSubset = (a,b) => a.length>0 && a.every(t=>b.includes(t));
   const n = norm(nombreZeus), nt = tokenSet(nombreZeus), ntoks = tokens(nombreZeus);
+  /* Bodegas CENTRALES de Zeus (no se controlan en esta app). Antes "BODEGA BEBIDAS"
+     se confundía con SUNSET BAR BEBIDAS y "BODEGA DE SUMINISTROS" con SUNSET BAR
+     SUMINISTROS (una sola palabra contenida en el nombre), y cada despacho de la
+     central a cualquier área se restaba de las bodegas Sunset. Nunca coinciden. */
+  if(INV_BODEGAS_CENTRALES.includes(n)) return null;
+  // El subconjunto solo vale si el lado más corto tiene 2+ palabras (p.ej. "ALMEJA PLAYERA").
+  const subOk = (a,b) => a.length>=2 && isSubset(a,b);
   const bod = (INV_CFG.bodegas||[]).find(b=>{
     if(norm(b.nombre)===n || norm(b.zeusNombre||"")===n) return true;
     if(tokenSet(b.nombre)===nt || (b.zeusNombre && tokenSet(b.zeusNombre)===nt)) return true;
     const btoks = tokens(b.nombre);
-    if(isSubset(ntoks,btoks) || isSubset(btoks,ntoks)) return true;
-    if(b.zeusNombre){ const zt=tokens(b.zeusNombre); if(isSubset(ntoks,zt)||isSubset(zt,ntoks)) return true; }
+    if(subOk(ntoks,btoks) || subOk(btoks,ntoks)) return true;
+    if(b.zeusNombre){ const zt=tokens(b.zeusNombre); if(subOk(ntoks,zt)||subOk(zt,ntoks)) return true; }
     return false;
   });
   return bod ? bod.codigo : null;
 }
-async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, cantidad, signo}){
+async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, cantidad, signo, trasladoN}){
   const bod = invBodega(codigoBodega); if(!bod) return {ok:false, motivo:"bodega A&B no encontrada: "+codigoBodega};
   if(!codigo) return {ok:false, motivo:"traslado sin código de producto (se registra siempre por código, nunca por nombre)"};
   const regs = await invRegistrosDe(codigoBodega);
@@ -1453,6 +1461,13 @@ async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, 
       items, servicios:[], cerrado:false, creadoPor:"Traslados (auto)", creadoEn:nowISO()};
     registroNuevo=true;
   }
+  /* Un mismo traslado nunca se suma dos veces: cada línea aplicada queda anotada
+     en el registro del día (N° traslado | código | signo | cantidad). Antes, si el
+     lote se corría 2 o 3 veces, las cantidades se duplicaban o triplicaban. */
+  const aplicados = Array.isArray(rec.trasladosAplicados) ? rec.trasladosAplicados.slice() : [];
+  const clave = trasladoN ? [trasladoN, codigo, signo>0?"+":"-", Math.round((+cantidad||0)*1000)/1000].join("|") : null;
+  if(clave && aplicados.includes(clave)) return {ok:true, registroNuevo:false, yaAplicado:true};
+  if(clave) aplicados.push(clave);
   const items = rec.items.slice();
   let i = items.findIndex(x=>x.codigo===codigo);
   /* Si el producto no está en el catálogo de la bodega, se agrega SOLO en el
@@ -1464,7 +1479,7 @@ async function invAplicarTraslado({codigoBodega, fecha, codigo, nombre, unidad, 
   if(signo>0) it.tp = Math.round(((+it.tp||0)+cant)*1000)/1000;
   else it.tn = Math.round(((+it.tn||0)+cant)*1000)/1000;
   items[i] = it;
-  const toSave = {...rec, items};
+  const toSave = {...rec, items, trasladosAplicados: aplicados};
   await Store.writeOne("Inventario", toSave);
   return {ok:true, registroNuevo};
 }
@@ -1481,6 +1496,7 @@ async function invAplicarLoteTraslados(lote){
     const yaExistia = bod && (bod.productos||[]).some(p=>p.codigo===t.codigo);
     try{
       const r = await invAplicarTraslado(t);
+      if(r.ok && r.yaAplicado){ (resumen.yaAplicados=resumen.yaAplicados||[]).push(t); continue; }
       if(r.ok) tocados.add(t.codigoBodega+"|"+t.fecha);
       if(r.ok){
         resumen.aplicados.push({...t, registroNuevo:r.registroNuevo});
