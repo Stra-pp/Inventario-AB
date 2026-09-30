@@ -976,7 +976,11 @@ async function invCfgRead(){
   if(MODE!=="graph"){ const c=Local.read("Inventario_Config"); return (!c||Array.isArray(c))?null:c; }
   const c = await GraphStore.readStrict("Inventario_Config");
   if(!c || Array.isArray(c)) return null; return c; }
-async function invCfgSave(){
+/* Los guardados de configuración van en fila (uno después de otro): con varios
+   clics seguidos en Accesos, dos guardados a la vez se estorbaban. */
+let INV_CFG_SAVE_Q = Promise.resolve();
+function invCfgSave(){ const run=()=>invCfgSaveUno(); const p=INV_CFG_SAVE_Q.then(run, run); INV_CFG_SAVE_Q=p.catch(()=>{}); return p; }
+async function invCfgSaveUno(){
   if(MODE==="graph"){
     const remota = await invCfgRead(); // si no se puede leer, no se guarda (lanza el error)
     const revRemota = remota ? (+remota.rev||0) : 0;
@@ -2413,6 +2417,58 @@ function InventarioCorreccion25({user,toast}){
     {log && <div style={{marginTop:10,fontSize:13,whiteSpace:"pre-wrap",background:"#e6f2f3",padding:10,borderRadius:8}}>{log.join("\n")}</div>}
   </div>;
 }
+/* Accesos por persona: en vez de repetir a todo el personal debajo de cada
+   bodega, se busca a la persona y se marcan sus bodegas en una sola tabla
+   (Cuenta inventario / Registra PAX). Por defecto solo se muestra a quienes ya
+   tienen algún acceso; el buscador trae a cualquiera del personal. Usa los
+   mismos datos de siempre (accesoInventario, accesos, accesosServicio). */
+function InventarioAccesos({colabs,toggleAccesoInv,toggleAcceso,toggleAccesoServicio}){
+  const [q,setQ]=useState(""); const [abierto,setAbierto]=useState(null);
+  const bodegas=INV_CFG.bodegas||[];
+  const cuenta=u=>((INV_CFG.accesos&&INV_CFG.accesos[u.nombre])||[]);
+  const pax=u=>((INV_CFG.accesosServicio&&INV_CFG.accesosServicio[u.nombre])||[]);
+  const entra=u=>u.rol!=='colaborador' || tieneAccesoInventario(u);
+  const tieneAlgo=u=>cuenta(u).length||pax(u).length;
+  const nb=c=>{ const b=bodegas.find(x=>x.codigo===c); return b?b.nombre:c; };
+  const qq=q.trim().toLowerCase();
+  const lista=colabs.filter(u=> qq ? u.nombre.toLowerCase().includes(qq) : tieneAlgo(u)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  // Si se le asigna una bodega a un colaborador que no podía entrar, se le da la entrada también.
+  const darEntrada=u=>{ if(u.rol==='colaborador' && !tieneAccesoInventario(u)) toggleAccesoInv(u.nombre); };
+  const chk=(on,fn,dis)=><input type="checkbox" checked={!!on} disabled={dis} onChange={fn} style={{width:18,height:18,cursor:dis?"not-allowed":"pointer"}}/>;
+  return <div style={{marginBottom:18}}>
+    <p className="hint" style={{marginBottom:8}}>Busca a la persona y marca qué bodegas cuenta y en cuáles registra PAX. Gerencia y Desarrollador siempre ven todo.</p>
+    <input className="inp" style={{marginBottom:10,maxWidth:420}} placeholder="Buscar persona para dar o quitar acceso…" value={q} onChange={e=>setQ(e.target.value)}/>
+    {!qq && !!lista.length && <div className="hint" style={{marginBottom:8}}>{lista.length} persona(s) con bodegas asignadas. Para dar acceso a alguien más, búscalo arriba.</div>}
+    {!qq && !lista.length && <div className="hint">Nadie tiene bodegas asignadas todavía. Escribe un nombre arriba para empezar.</div>}
+    {qq && !lista.length && <div className="hint">No hay nadie del personal con ese nombre.</div>}
+    {lista.map(u=>{ const c=cuenta(u), p=pax(u), open=abierto===u.nombre || (qq && lista.length<=3);
+      return <div key={u.id} className="card" style={{marginBottom:8,padding:"10px 14px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setAbierto(open&&abierto===u.nombre?null:u.nombre)}>
+          <div style={{minWidth:0}}>
+            <b>{u.nombre}</b>{u.rol==='aprobador' && <span className="meta"> · jefatura</span>}
+            <div className="meta" style={{fontSize:12.5,marginTop:2}}>
+              {u.rol==='colaborador' && !entra(u) ? "Sin acceso a la app" :
+               (c.length||p.length) ? [c.length?("Cuenta: "+c.map(nb).join(", ")):null, p.length?("PAX: "+p.map(nb).join(", ")):null].filter(Boolean).join(" · ") : "Entra a la app, sin bodegas asignadas"}
+            </div>
+          </div>
+          <Icon name={open?"chevronUp":"chevronDown"} size={18}/>
+        </div>
+        {open && <div style={{marginTop:10}} onClick={e=>e.stopPropagation()}>
+          {u.rol==='colaborador' && <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:13.5}}>
+            {chk(entra(u),()=>toggleAccesoInv(u.nombre),!!u.inv)} Puede entrar a la app ("Soy colaborador"){u.inv?" — fijo":""}</label>}
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead><tr style={{textAlign:"left",color:"var(--muted)"}}><th style={{padding:"4px 0"}}>Bodega</th><th style={{width:90,textAlign:"center"}}>Cuenta inventario</th><th style={{width:90,textAlign:"center"}}>Registra PAX</th></tr></thead>
+            <tbody>{bodegas.map(b=><tr key={b.codigo} style={{borderTop:"1px solid var(--line)"}}>
+              <td style={{padding:"6px 0"}}>{b.nombre}</td>
+              <td style={{textAlign:"center"}}>{chk(c.includes(b.codigo),()=>{ if(!c.includes(b.codigo)) darEntrada(u); toggleAcceso(u.nombre,b.codigo); })}</td>
+              <td style={{textAlign:"center"}}>{chk(p.includes(b.codigo),()=>{ if(!p.includes(b.codigo)) darEntrada(u); toggleAccesoServicio(u.nombre,b.codigo); })}</td>
+            </tr>)}</tbody>
+          </table>
+          {u.rol==='colaborador' && !entra(u) && (c.length||p.length) ? <div className="hint" style={{marginTop:6,color:"#9a3324"}}>Tiene bodegas marcadas pero no puede entrar a la app: marca "Puede entrar a la app".</div> : null}
+        </div>}
+      </div>; })}
+  </div>;
+}
 function InventarioConfig({user,toast}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
   const [nuevaBodega,setNuevaBodega]=useState("");
@@ -2474,11 +2530,8 @@ function InventarioConfig({user,toast}){
     re(); guardar(); }
   const colabsTodos = USERS.filter(u=>u.rol==='colaborador');
   return <div>
-    <h3 style={{marginTop:0}}>Acceso a Inventario</h3>
-    <p className="hint" style={{marginBottom:10}}>Quién de todo el personal del hotel puede entrar a esta app por "Soy colaborador" en el login. Marca aquí a quien necesite entrar — no hace falta tocar código ni volver a publicar la app.</p>
-    <div className="fgrid" style={{marginBottom:16}}>{colabsTodos.map(u=>{ const on=tieneAccesoInventario(u);
-      return <span key={u.id} className="pill" style={{cursor:"pointer",background:on?"#e6f2f3":"#f1f3f3",color:on?"var(--ocean-d)":"var(--muted)"}}
-        onClick={()=>toggleAccesoInv(u.nombre)}>{on?"✓ ":""}{u.nombre}</span>; })}</div>
+    <h3 style={{marginTop:0}}>Accesos por persona</h3>
+    <InventarioAccesos colabs={colabs} toggleAccesoInv={toggleAccesoInv} toggleAcceso={toggleAcceso} toggleAccesoServicio={toggleAccesoServicio}/>
     <h3>Bodegas</h3>
     <div className="row" style={{gap:8,marginBottom:10}}>
       <input className="inp" style={{maxWidth:110}} placeholder="Código" value={nuevoCodBodega} onChange={e=>setNuevoCodBodega(e.target.value)}/>
@@ -2487,29 +2540,10 @@ function InventarioConfig({user,toast}){
     </div>
     {(INV_CFG.bodegas||[]).map(b=><InventarioConfigBodega key={b.codigo} b={b} user={user} toast={toast} onSave={guardar} onDel={()=>delBodega(b.codigo)} onChange={re}/>)}
     {!(INV_CFG.bodegas||[]).length && <div className="empty">Todavía no hay bodegas. Agrega la primera arriba.</div>}
-    <h3>Quién puede llenar cada bodega (cocina/bar — conteo de inventario)</h3>
-    <p className="hint" style={{marginBottom:10}}>Gerencia y Desarrollador siempre ven todas las bodegas (Resumen Gerencial). Aquí asignas a colaboradores y jefaturas qué bodega les toca contar.</p>
-    {(INV_CFG.bodegas||[]).map(b=><div key={b.codigo} className="card" style={{marginBottom:10}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <b>{b.nombre}</b>
-        <span className="pill" style={{cursor:"pointer",background:invEsBebidas(b)?"#e6f2f3":"#f1f3f3",color:invEsBebidas(b)?"var(--ocean-d)":"var(--muted)"}}
-          onClick={()=>toggleBebidas(b.codigo)} title="Si está marcada, PAX sólo pide Almuerzo y Cena (sin Desayuno)">
-          {invEsBebidas(b)?"✓ ":""}Bodega de bebidas</span>
-      </div>
-      <div className="fgrid" style={{marginTop:8}}>{colabs.map(u=>{ const on=((INV_CFG.accesos&&INV_CFG.accesos[u.nombre])||[]).includes(b.codigo);
-        return <span key={u.id} className="pill" style={{cursor:"pointer",background:on?"#e6f2f3":"#f1f3f3",color:on?"var(--ocean-d)":"var(--muted)"}}
-          onClick={()=>toggleAcceso(u.nombre,b.codigo)}>{on?"✓ ":""}{u.nombre}</span>; })}</div>
-      {!colabs.length && <div className="hint">No hay colaboradores/jefaturas cargados todavía.</div>}
-    </div>)}
-    <h3>Quién registra PAX (personal de servicio)</h3>
-    <p className="hint" style={{marginBottom:10}}>Personal de servicio sólo ve la pantalla "PAX / Servicio": ingresan adultos y niños por Desayuno/Almuerzo/Cena (o sólo Almuerzo/Cena en bodegas de bebidas), sin acceso al conteo de inventario.</p>
-    {(INV_CFG.bodegas||[]).map(b=><div key={b.codigo} className="card" style={{marginBottom:10}}>
-      <b>{b.nombre}</b>
-      <div className="fgrid" style={{marginTop:8}}>{colabs.map(u=>{ const on=((INV_CFG.accesosServicio&&INV_CFG.accesosServicio[u.nombre])||[]).includes(b.codigo);
-        return <span key={u.id} className="pill" style={{cursor:"pointer",background:on?"#e6f2f3":"#f1f3f3",color:on?"var(--ocean-d)":"var(--muted)"}}
-          onClick={()=>toggleAccesoServicio(u.nombre,b.codigo)}>{on?"✓ ":""}{u.nombre}</span>; })}</div>
-      {!colabs.length && <div className="hint">No hay colaboradores/jefaturas cargados todavía.</div>}
-    </div>)}
+    <h3>Bodegas de bebidas</h3>
+    <p className="hint" style={{marginBottom:10}}>En las bodegas marcadas, PAX solo pide Almuerzo y Cena (sin Desayuno) y solo adultos.</p>
+    <div className="fgrid" style={{marginBottom:16}}>{(INV_CFG.bodegas||[]).map(b=><span key={b.codigo} className="pill" style={{cursor:"pointer",background:invEsBebidas(b)?"#e6f2f3":"#f1f3f3",color:invEsBebidas(b)?"var(--ocean-d)":"var(--muted)"}}
+      onClick={()=>toggleBebidas(b.codigo)}>{invEsBebidas(b)?"✓ ":""}{b.nombre}</span>)}</div>
     <h3>Quién puede ver el reporte de cierre (jefaturas)</h3>
     <p className="hint" style={{marginBottom:10}}>Acceso de sólo lectura al "Resumen Gerencial": cómo cerró cada bodega — traslados, merma, consumo, promedio y PAX del día, con opción de ver sólo lo que tuvo movimiento e imprimir/PDF. No pueden editar nada. Gerencia y Desarrollador siempre lo ven; aquí sólo se lo das a la jefatura puntual que lo necesite (ej. quien supervisa A&amp;B), no a todas las cuentas de jefatura del hotel.</p>
     <div className="fgrid">{jefaturas.map(u=>{ const on=!!(INV_CFG.accesosReporte&&INV_CFG.accesosReporte[u.nombre]);
