@@ -635,7 +635,7 @@ const ListStore={
 const hoyISO=()=>hoyEC();
 const desdeDias=n=>sumaDiasYMD(hoyEC(),-n);
 const Store = {
-  read(t){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t):GraphStore.read(t); },
+  read(t,opts){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t,opts):GraphStore.read(t); },
   write(t,a){ if(MODE!=="graph") return Local.write(t,a); return LIST_TABLES.includes(t)?ListStore.write(t,a):GraphStore.write(t,a); },
   /* Trae/guarda UN registro sin pasar por la lista completa (ver ListStore.readOne
      / writeOne más arriba). En modo local o para las tablas que aún viven en un
@@ -976,6 +976,19 @@ async function invCfgRead(){
   if(MODE!=="graph"){ const c=Local.read("Inventario_Config"); return (!c||Array.isArray(c))?null:c; }
   const c = await GraphStore.readStrict("Inventario_Config");
   if(!c || Array.isArray(c)) return null; return c; }
+/* Todos deben trabajar con el MISMO catálogo. La configuración se leía una sola
+   vez al abrir la app: quien la tuviera abierta desde temprano seguía con la
+   lista vieja de productos y, al abrir un día, la "sincronizaba" con esa lista
+   vieja (volvían a aparecer productos quitados o desaparecían los nuevos).
+   Ahora, antes de abrir o crear un día, se trae la versión vigente. */
+let INV_CFG_REFRESCADA_EN = 0;
+async function invCfgRefrescar(forzar){
+  if(MODE!=="graph") return true;
+  if(!forzar && Date.now()-INV_CFG_REFRESCADA_EN < 20000) return INV_CFG_REV_BASE!==null;
+  try{ const remota = await invCfgRead();
+    if(remota && (INV_CFG_REV_BASE===null || (+remota.rev||0)!==INV_CFG_REV_BASE)) applyInvConfig(remota);
+    INV_CFG_REFRESCADA_EN = Date.now(); return INV_CFG_REV_BASE!==null;
+  }catch(e){ return false; } }
 /* Los guardados de configuración van en fila (uno después de otro): con varios
    clics seguidos en Accesos, dos guardados a la vez se estorbaban. */
 let INV_CFG_SAVE_Q = Promise.resolve();
@@ -1227,8 +1240,44 @@ function invSinDuplicados(regs){
     if(!a || invPesoRegistro(r)>invPesoRegistro(a) || (invPesoRegistro(r)===invPesoRegistro(a) && (r.editadoEn||r.creadoEn||"")>(a.editadoEn||a.creadoEn||""))) porDia.set(k,r); }
   return regs.filter(r=>porDia.get(r.bodega+"|"+r.fecha)===r);
 }
+/* Guardado sin pisar a otros: si mientras alguien tenía abierto un día otra
+   persona guardó cambios (PAX, conteo, traslados, aprobación), al guardar se
+   vuelve a leer el registro y solo se aplica lo que ESTA persona cambió,
+   conservando lo que guardaron los demás. Antes ganaba el último en guardar y
+   se perdía lo del otro, por eso no todos veían lo mismo. */
+const INV_CAMPOS_ITEM = ["inicial","tp","tn","merma","final"];
+const invIgual = (a,b) => JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b);
+function invFusionar(orig, mio, ultimo){
+  if(!ultimo || !orig) return mio;
+  const out = {...ultimo};
+  for(const k of new Set([...Object.keys(mio), ...Object.keys(orig)])){
+    if(["items","servicios","ajustes","trasladosAplicados"].includes(k)) continue;
+    if(!invIgual(mio[k], orig[k])) out[k] = mio[k];
+  }
+  const items = (ultimo.items||[]).map(u=>{ const o=invBuscarItem(orig.items,u), m=invBuscarItem(mio.items,u);
+    if(!m) return u; if(!o) return {...u, ...Object.fromEntries(INV_CAMPOS_ITEM.map(c=>[c, m[c]]))};
+    const r={...u}; for(const c of INV_CAMPOS_ITEM) if(!invIgual(m[c], o[c])) r[c]=m[c]; return r; });
+  for(const m of (mio.items||[])) if(!invBuscarItem(ultimo.items,m) && !invBuscarItem(orig.items,m)) items.push(m);
+  out.items = items;
+  const idsO = new Set((orig.servicios||[]).map(x=>x.id)), idsM = new Set((mio.servicios||[]).map(x=>x.id));
+  const quitados = [...idsO].filter(id=>!idsM.has(id));
+  const agregados = (mio.servicios||[]).filter(x=>!idsO.has(x.id));
+  out.servicios = [...(ultimo.servicios||[]).filter(x=>!quitados.includes(x.id)),
+                   ...agregados.filter(x=>!(ultimo.servicios||[]).some(y=>y.id===x.id))];
+  out.ajustes = [...(ultimo.ajustes||[]), ...(mio.ajustes||[]).slice((orig.ajustes||[]).length)];
+  if(ultimo.cerrado && !mio.cerrado && !orig.cerrado) out.cerrado = true; // si otro ya lo cerró, sigue cerrado
+  return out;
+}
+async function invGuardarFusionado(orig, mio){
+  let ultimo = null;
+  try{ ultimo = (await Store.read("Inventario",{noCache:true})).find(x=>x.id===mio.id) || null; }catch(e){}
+  const fin = invFusionar(orig, mio, ultimo);
+  await Store.writeOne("Inventario", fin);
+  return fin;
+}
 async function invRegistrosDe(codigo){
-  const all = invSinDuplicados(await Store.read("Inventario"));
+  // Siempre la versión vigente de SharePoint: así todos ven lo mismo que se guardó.
+  const all = invSinDuplicados(await Store.read("Inventario",{noCache:true}));
   const regs = all.filter(r=>r.bodega===codigo).sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
   await invAnotarVencidos(regs);
   return regs;
@@ -1244,21 +1293,28 @@ async function invRegistrosDe(codigo){
 function invClaveProducto(p){
   return p && p.codigo ? ("C:"+String(p.codigo).trim().toUpperCase()) : ("N:"+String((p&&p.nombre)||"").trim().toUpperCase());
 }
-async function invSincronizarItems(rec){
+async function invSincronizarItems(rec, regs){
   const bod = invBodega(rec.bodega);
   const catalogo = (bod && bod.productos) || [];
-  const porClave = new Map((rec.items||[]).map(it=>[invClaveProducto(it), it]));
+  /* Nunca se sincroniza contra un catálogo vacío o que no se pudo confirmar con
+     SharePoint (sin conexión, lectura fallida): eso borraba los productos del día. */
+  if(!catalogo.length || (MODE==="graph" && INV_CFG_REV_BASE===null)) return rec;
+  const restantes = (rec.items||[]).filter(it=>!it.soloDia);
+  const anterior = (regs||[]).filter(r=>r.fecha<rec.fecha).sort((a,b)=>a.fecha<b.fecha?1:-1)[0];
   let cambios = false;
   const itemsFinales = catalogo.map(p=>{
-    const clave = invClaveProducto(p);
-    const existente = porClave.get(clave);
-    if(existente){ porClave.delete(clave); return existente; }
+    const existente = invBuscarItem(restantes, p);
+    if(existente){ restantes.splice(restantes.indexOf(existente),1);
+      if(existente.codigo!==p.codigo || existente.nombre!==p.nombre){ cambios=true; return {...existente, codigo:p.codigo, nombre:p.nombre}; }
+      return existente; }
     cambios = true;
-    return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial:0, tp:0, tn:0, merma:0, final:null};
+    // Producto agregado al catálogo después de crear el día: arrastra el final del día anterior.
+    const prev = anterior && invBuscarItem(anterior.items, p);
+    return {codigo:p.codigo, nombre:p.nombre, unidad:p.unidad||"", inicial: prev ? Math.round(invFinalVista(prev)*1000)/1000 : 0, tp:0, tn:0, merma:0, final:null};
   });
   // Los ítems creados por un traslado solo para ese día ("item nuevo") se conservan.
-  const soloDelDia = [...porClave.values()].filter(it=>it.soloDia);
-  if(porClave.size>soloDelDia.length) cambios = true; // había items que ya no están en el catálogo: se eliminan
+  const soloDelDia = (rec.items||[]).filter(it=>it.soloDia);
+  if(restantes.length) cambios = true; // había items que ya no están en el catálogo: se eliminan
   if(!cambios) return rec;
   const toSave = {...rec, items:[...itemsFinales, ...soloDelDia]};
   try{ await Store.writeOne("Inventario", toSave); }catch(e){ /* si falla el guardado, se reintenta la próxima vez que se abra */ }
@@ -1384,16 +1440,17 @@ function invPuedeElegirAyer(regs){
    ayer, o pasan las 10am, se pasa a hoy normalmente y el de ayer queda como
    quedó (ver invAnotarVencidos). */
 async function invAbrirHoy(codigo, user, fechaDeseada){
+  await invCfgRefrescar();
   const hoy = hoyISO();
   const regs = await invRegistrosDe(codigo);
   const ayer = sumaDiasYMD(hoy,-1);
   if(!invLimite10amPasado()){
     const deAyer = regs.find(r=>r.fecha===ayer);
-    if(deAyer && !deAyer.cerrado) return await invSincronizarItems(deAyer);
+    if(deAyer && !deAyer.cerrado) return await invSincronizarItems(deAyer, regs);
     if(fechaDeseada==="ayer" && !deAyer) return await invCrearRegistroPara(codigo, user, ayer, regs);
   }
   const deHoy = regs.find(r=>r.fecha===hoy);
-  if(deHoy) return deHoy.cerrado ? deHoy : await invSincronizarItems(deHoy);
+  if(deHoy) return deHoy.cerrado ? deHoy : await invSincronizarItems(deHoy, regs);
   return await invCrearRegistroPara(codigo, user, hoy, regs);
 }
 
@@ -1410,9 +1467,10 @@ async function invAbrirHoy(codigo, user, fechaDeseada){
    crea llevando el "Cantidad final" del último día cerrado anterior como
    "Inicial", igual que invCrearRegistroPara. */
 async function invAbrirFecha(codigo, user, fecha){
+  await invCfgRefrescar();
   const regs = await invRegistrosDe(codigo);
   const existente = regs.find(r=>r.fecha===fecha);
-  if(existente) return existente.cerrado ? existente : await invSincronizarItems(existente);
+  if(existente) return existente.cerrado ? existente : await invSincronizarItems(existente, regs);
   return await invCrearRegistroPara(codigo, user, fecha, regs);
 }
 
@@ -1603,6 +1661,25 @@ function InventarioCierre({user,toast,modo}){
   const [fechaLibre,setFechaLibre]=useState("");
   const [editando,setEditando]=useState(false);
   const originalRec = useRef(null);
+  /* Lo que otros guardan se ve aquí sin tener que salir y entrar: al volver a
+     la pestaña, y cada minuto, se recarga el día abierto — solo si esta persona
+     no tiene cambios sin guardar (para no borrarle lo que está escribiendo). */
+  const recRef = useRef(null); recRef.current = rec;
+  const guardandoRef = useRef(false); guardandoRef.current = guardando;
+  useEffect(()=>{
+    async function recargar(){
+      const r = recRef.current; if(!r || guardandoRef.current || document.hidden) return;
+      if(!invIgual(r, originalRec.current)) return;
+      try{ const f = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(x=>x.bodega===r.bodega && x.fecha===r.fecha))[0];
+        if(f && !invIgual(f, recRef.current) && invIgual(recRef.current, originalRec.current)){
+          setRec(JSON.parse(JSON.stringify(f))); originalRec.current = JSON.parse(JSON.stringify(f)); }
+      }catch(e){}
+    }
+    const t = setInterval(recargar, 60000);
+    const onVis = ()=>{ if(!document.hidden) recargar(); };
+    document.addEventListener("visibilitychange", onVis);
+    return ()=>{ clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  },[]);
   useEffect(()=>{ setEditando(false); originalRec.current = rec ? JSON.parse(JSON.stringify(rec)) : null; },[rec && rec.id]);
   useEffect(()=>{ if(!codigo){ setCargando(false); return; }
     setCargando(true); setFechaElegida("hoy"); setFechaLibre("");
@@ -1698,7 +1775,7 @@ function InventarioCierre({user,toast,modo}){
         if(desv.length && !esPasado) invEnviarAlertaDesviaciones(toSave, desv); // no bloquea el cierre si falla
       }
       toSave = {...toSave, servicios: invNormServicios(bodegaObj, toSave.servicios)};
-      await Store.writeOne("Inventario", toSave);
+      toSave = await invGuardarFusionado(originalRec.current, toSave);
       /* Cadena: el Inicial de los días siguientes abiertos se recalcula solo.
          Si el siguiente día ya está cerrado, solo el Desarrollador/Jefe de
          Operaciones puede decidir actualizarlo (y queda anotado). */
@@ -1884,8 +1961,8 @@ function InventarioServicio({user,toast}){
   async function guardarServicios(servicios){
     setGuardando(true);
     try{
-      const toSave = {...rec, servicios: invNormServicios(bodegaObj, servicios)};
-      await Store.writeOne("Inventario", toSave);
+      let toSave = {...rec, servicios: invNormServicios(bodegaObj, servicios)};
+      toSave = await invGuardarFusionado(rec, toSave);
       setRec(toSave);
       toast("PAX guardado.");
     }catch(e){ toast("No se pudo guardar: "+(e.message||e)); }
@@ -2119,7 +2196,7 @@ function InventarioAprobacion({user,toast}){
     if(r.bloqueadoPorLimite){ toast("Ya venció el plazo de las 10am para este cierre — quedó registrado tal cual."); return; }
     try{
       const toSave={...r, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO()};
-      await Store.writeOne("Inventario", toSave);
+      await invGuardarFusionado(r, toSave);
       toast("Aprobado — ya está disponible para Gerencia General.");
       cargar();
     }catch(e){ toast("No se pudo aprobar: "+(e.message||e)); }
@@ -2174,9 +2251,9 @@ function InventarioAjuste({r,user,toast,onDone}){
     setGuardando(true);
     try{
       const nuevo = {...r, items, servicios};
-      const toSave = {...nuevo, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO(),
+      let toSave = {...nuevo, aprobado:true, aprobadoPor:user.nombre, aprobadoEn:nowISO(),
         ajustes:[...(r.ajustes||[]), {por:user.nombre, en:nowISO(), detalle:invDetalleCambios(r, nuevo)}]};
-      await Store.writeOne("Inventario", toSave);
+      toSave = await invGuardarFusionado(r, toSave);
       await invPropagarInicial(r.bodega, toSave);
       toast("Ajuste guardado y aprobado — ya está disponible para Gerencia General.");
       onDone();
@@ -2732,7 +2809,23 @@ function TopBar({user,onLogout}){
     <button className="iconbtn" title="Salir" onClick={onLogout}><Icon name="logout" size={19}/></button>
   </div>;
 }
+/* Versión de la app. Si alguien tiene abierta una versión anterior (la página
+   quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
+   así todos usan las mismas reglas de cálculo y la misma lista. */
+const APP_BUILD = "2026-10-01a";
+function useVersionNueva(){
+  const [nueva,setNueva]=useState(false);
+  useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
+    async function revisar(){ try{ const t = await (await fetch(location.pathname+"?v="+Date.now(),{cache:"no-store"})).text();
+      const m = t.match(/const APP_BUILD = "([^"]+)"/); if(m && m[1]!==APP_BUILD) setNueva(true); }catch(e){} }
+    const t=setInterval(revisar, 10*60*1000); const onVis=()=>{ if(!document.hidden) revisar(); };
+    document.addEventListener("visibilitychange", onVis); revisar();
+    return ()=>{ clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  },[]);
+  return nueva;
+}
 function App(){
+  const versionNueva = useVersionNueva();
   const [user,setUser]=useState(()=>{ try{return JSON.parse(sessionStorage.getItem("pp_inv_user"))}catch{return null} });
   const [toastMsg,setToastMsg]=useState("");
   const [connected,setConnected]=useState(MODE!=="graph");
@@ -2783,6 +2876,9 @@ function App(){
     <div className="content">
       <Inventario key={cfgVer} user={user} toast={toast}/>
     </div>
+    {versionNueva && <div style={{position:"fixed",left:12,right:12,bottom:12,zIndex:50,background:"#1f4e5a",color:"#fff",borderRadius:12,padding:"12px 14px",display:"flex",gap:10,alignItems:"center",justifyContent:"space-between",boxShadow:"0 6px 20px rgba(0,0,0,.2)"}}>
+      <span>Hay una versión nueva de la app. Guarda lo que estés haciendo y recarga.</span>
+      <button className="btn" style={{background:"#fff",color:"#1f4e5a"}} onClick={()=>location.reload()}>Recargar</button></div>}
     {toastMsg && <div className="toast">{toastMsg}</div>}
   </div>;
 }
