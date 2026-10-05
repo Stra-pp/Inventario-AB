@@ -1023,6 +1023,16 @@ function invComputeConsumo(it){ const ini=+it.inicial||0, tp=+it.tp||0, tn=+it.t
    si no hubo consumo, lo que queda es lo que había) y el consumo sale en 0. */
 function invDisponible(it){ return (+it.inicial||0)+(+it.tp||0)-(+it.tn||0)-(+it.merma||0); }
 function invFinalVacio(it){ return it.final===null||it.final===""||it.final===undefined; }
+/* Ordena los productos de un día según la lista de la bodega (Configurar):
+   así cualquier pantalla y cualquier persona ve el mismo orden. Los "(item
+   nuevo)" de traslados van al final. */
+function invOrdenCatalogo(bodega, arr, get){
+  get = get || (x=>x);
+  const cat = ((invBodega(bodega)||{}).productos)||[];
+  const pos = it => { if(it.soloDia) return 1e6; const i=cat.findIndex(p=>(p.codigo||"")===(it.codigo||"") && p.nombre===it.nombre);
+    if(i>=0) return i; const j=cat.findIndex(p=>p.nombre===it.nombre); return j>=0 ? j : 5e5; };
+  return arr.map((x,k)=>({x,k,p:pos(get(x))})).sort((a,b)=>a.p-b.p||a.k-b.k).map(o=>o.x);
+}
 function invFinalVista(it){ return invFinalVacio(it) ? invDisponible(it) : +it.final; }
 function invConsumoVista(it){ return invFinalVacio(it) ? 0 : invComputeConsumo(it); }
 function invFmt(n){ if(n===null||n===undefined||n==="") return "—";
@@ -1727,10 +1737,10 @@ function InventarioCierre({user,toast,modo}){
   const pax = invTotalPax(rec);
   const filtrados = rec.items.map((it,i)=>({it,i})).filter(({it})=> !q.trim() ||
     (it.nombre+" "+it.codigo).toLowerCase().indexOf(q.trim().toLowerCase())>-1);
-  // Cocina: lo que tiene inventario inicial arriba, lo que está en cero abajo
-  // (orden estable dentro de cada grupo, no se toca el orden guardado).
-  const listados = completo ? filtrados
-    : filtrados.slice().sort((a,b)=> ((+b.it.inicial||0)>0?1:0) - ((+a.it.inicial||0)>0?1:0));
+  /* Mismo listado y MISMO ORDEN para todos (cocina/bar, Antonio, Gerencia):
+     el orden de la lista de la bodega en Configurar. Antes la vista de cocina
+     subía arriba lo que tenía inicial y por eso cada uno veía otro orden. */
+  const listados = invOrdenCatalogo(rec.bodega, filtrados, x=>x.it);
   async function guardar(cerrar){
     const faltantes = rec.items.filter(it=>it.final===null||it.final==="").length;
     if(cerrar && faltantes>0){ if(!window.confirm(`${faltantes} producto(s) sin "Cantidad final". Se guardará como cantidad final lo disponible (inicial + traslados − merma), es decir, consumo 0. ¿Cerrar de todas formas?`)) return; }
@@ -2090,7 +2100,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
   const tieneMovimiento = it=>{ if((+it.tp||0)!==0||(+it.tn||0)!==0||(+it.merma||0)!==0) return true;
     const c=invComputeConsumo(it); return c!==null && c!==0; };
   const base=(r.items||[]).filter(it=>!q.trim()||(it.nombre+" "+it.codigo).toLowerCase().indexOf(q.trim().toLowerCase())>-1);
-  const items = (completo && soloMov) ? base.filter(tieneMovimiento) : base;
+  const items = invOrdenCatalogo(r.bodega, (completo && soloMov) ? base.filter(tieneMovimiento) : base);
   return <div className="inv-print">
     {completo && <div className="inv-noprint" style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
       <button className={"btn ghost"+(soloMov?" on":"")} onClick={()=>setSoloMov(s=>!s)}>
@@ -2812,7 +2822,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-01a";
+const APP_BUILD = "2026-10-05a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
