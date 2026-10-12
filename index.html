@@ -1108,7 +1108,8 @@ function invDesviacionesDe(rec){
   const out=[];
   for(const it of ((rec&&rec.items)||[])){
     const consumo = invComputeConsumo(it);
-    if(consumo===null || consumo >= -0.001) continue;
+    // Solo cuenta si sigue siendo negativo redondeado a 2 decimales (evita "-0" por decimales).
+    if(consumo===null || Math.round(consumo*100)/100 >= 0) continue;
     out.push({codigo:it.codigo, nombre:it.nombre, tipo:"consumo_negativo", consumo,
       detalle:`Consumo negativo (${invFmt(consumo)}): inicial ${invFmt(it.inicial)} + traslados ${invFmt(it.tp)} − ${invFmt(it.tn)} − merma ${invFmt(it.merma)} da ${invFmt(invDisponible(it))}, pero la cantidad final registrada es ${invFmt(it.final)}. Revisar conteo o traslados.`});
   }
@@ -1164,13 +1165,31 @@ function invEmailReporteDiario(fecha, filas){
       <tbody>${cuerpo}</tbody>${filas.totalCosto!=null?`<tfoot><tr><td ${td} colspan="4"><b>Total costo consumido</b></td><td ${td} align="right"><b>${filas.totalCosto}</b></td><td ${td} colspan="2"></td></tr></tfoot>`:""}</table>
     <p style="color:#8a8578;font-size:12px;margin-top:14px">Reporte automático de Inventario A&amp;B.</p></div>`;
 }
+/* ===== Correos automáticos =====
+   10:00 → "Resumen de gestión de inventarios" (cierres, responsables, PAX,
+           aprobación, costo) para Antonio, Josué y Estrategia. Ya NO a GG.
+   10:30 → "Costo de inventarios y desviaciones" (tabla de costos por bodega +
+           consumos negativos del día) para Fernando Garcés con copia a
+           Antonio, con el Excel del detalle de inventarios y sus costos.
+   Los destinatarios se editan en Resumen Gerencial → Correos automáticos.
+   Ambos son del día anterior y se envían una sola vez por día. La app no es
+   un servidor: se envían desde el primer dispositivo con la app abierta y la
+   sesión de Microsoft iniciada después de esa hora. */
+function invListaCorreos(txt){ return String(txt||"").split(/[;,\s]+/).map(x=>x.trim()).filter(x=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)); }
+function invDestinatarios(lista){ return invListaCorreos(lista).map(a=>({emailAddress:{address:a}})); }
+function invHoraMinECActual(){ try{ const t=new Date().toLocaleString("en-US",{timeZone:TZ_EC,hour:"2-digit",minute:"2-digit",hour12:false}); const [h,m]=t.split(":").map(Number); return (h%24)*60+m; }catch(e){ const d=new Date(Date.now()-5*3600000); return d.getUTCHours()*60+d.getUTCMinutes(); } }
+async function invEnviarCorreosAutomaticos(){
+  try{ await invEnviarReporteDiario(); }catch(e){}
+  try{ await invEnviarReporteCostos(); }catch(e){}
+}
 async function invEnviarReporteDiario(){
   if(MODE!=="graph" || !invLimite10amPasado()) return {enviado:false};
   const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
   applyInvConfig(cfgRemota);
   const al = INV_CFG.alertas||{};
   const ayer = sumaDiasYMD(hoyISO(),-1);
-  if(!al.activo || !al.correo || al.ultimoReporteDiario===ayer) return {enviado:false};
+  const para = invDestinatarios(al.correo10!=null ? al.correo10 : "estrategia@playaparaiso.com.ec");
+  if(al.activo===false || !para.length || al.ultimoReporteDiario===ayer) return {enviado:false};
   // 1) marcar como enviado (si otro dispositivo se adelantó, invCfgSave falla y aquí se detiene)
   INV_CFG.alertas = {...al, ultimoReporteDiario:ayer};
   await invCfgSave();
@@ -1191,9 +1210,91 @@ async function invEnviarReporteDiario(){
               invDesviacionesDe(r).length?`${invDesviacionesDe(r).length} producto(s) con consumo negativo`:""].filter(Boolean).join(" · ")||"—"};
   });
   await gfetch("/me/sendMail","POST",{message:{
-    subject:`Inventario A&B — resumen del ${ayer}`,
+    subject:`Inventario A&B — resumen de gestión del ${ayer}`,
     body:{contentType:"HTML", content:(filas.totalCosto=invDinero(totalCosto), invEmailReporteDiario(ayer, filas))},
-    toRecipients:[{emailAddress:{address:al.correo}}]
+    toRecipients:para
+  }, saveToSentItems:true});
+  return {enviado:true};
+}
+/* Excel del detalle de inventarios de un día, con costos. Hoja "Resumen" +
+   una hoja por bodega. Se arma en el navegador con SheetJS. */
+async function invCargarXLSX(){
+  if(window.XLSX) return window.XLSX;
+  await new Promise((ok,ko)=>{ const sc=document.createElement("script"); sc.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    sc.onload=ok; sc.onerror=()=>ko(new Error("No se pudo cargar el generador de Excel")); document.head.appendChild(sc); });
+  return window.XLSX;
+}
+function invDatosDia(regs, fecha){
+  return (INV_CFG.bodegas||[]).map(b=>{ const r=invSinDuplicados(regs.filter(x=>x.bodega===b.codigo && x.fecha===fecha))[0]; return {b, r, c: r?invCostosDia(r):null}; });
+}
+async function invExcelDia(fecha, datos){
+  const X = await invCargarXLSX();
+  const r2 = n => (n===null||n===undefined||isNaN(+n)) ? null : Math.round((+n)*100)/100;
+  const r4 = n => (n===null||n===undefined||isNaN(+n)) ? null : Math.round((+n)*10000)/10000;
+  const wb = X.utils.book_new();
+  const res=[["Inventario A&B — "+fecha],[],["Bodega","Estado","Responsable","PAX","Costo consumido","Costo por PAX","Costo merma","Consumos negativos","Productos sin costo"]];
+  let tc=0, tm=0, tp=0;
+  for(const {b,r,c} of datos){
+    if(!r){ res.push([b.nombre,"Sin registro","",null,null,null,null,null,null]); continue; }
+    tc+=c.consumo; tm+=c.merma; tp+=c.pax;
+    res.push([b.nombre, r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar", r.responsable||"", c.pax, r2(c.consumo), c.pax?r2(c.consumo/c.pax):null, r2(c.merma), invDesviacionesDe(r).length, c.sinCosto.length]);
+  }
+  res.push(["TOTAL","","",tp,r2(tc),tp?r2(tc/tp):null,r2(tm),null,null]);
+  const wsR = X.utils.aoa_to_sheet(res); wsR["!cols"]=[{wch:28},{wch:20},{wch:20},{wch:7},{wch:15},{wch:13},{wch:12},{wch:12},{wch:12}];
+  X.utils.book_append_sheet(wb, wsR, "Resumen");
+  const usados=new Set(["Resumen"]);
+  for(const {b,r} of datos){ if(!r) continue;
+    const rows=[[b.nombre+" — "+fecha],[],["Código","Producto","Unidad","Inicial","Traslados (+)","Traslados (−)","Merma","Final","Consumo","Costo unitario","Costo consumo","Costo merma","Observación"]];
+    for(const it of invOrdenCatalogo(r.bodega, r.items||[])){
+      const cons=invConsumoVista(it), cu=invCostoUnit(it), fin=invFinalVista(it);
+      const neg = Math.round(cons*100)/100 < 0;
+      rows.push([it.codigo||"", it.nombre, invUnidad(it,r.bodega), r4(it.inicial||0), r4(it.tp||0), r4(it.tn||0), r4(it.merma||0), r4(fin), r4(cons), cu===null?null:r4(cu),
+        cu===null?null:r2(cons*cu), cu===null?null:r2((+it.merma||0)*cu), neg?"CONSUMO NEGATIVO":(cu===null&&(cons||+it.merma)?"Sin costo":"")]);
+    }
+    const ws=X.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:10},{wch:38},{wch:9},{wch:9},{wch:11},{wch:11},{wch:8},{wch:9},{wch:9},{wch:12},{wch:12},{wch:11},{wch:18}];
+    let nom=b.nombre.replace(/[\\/?*\[\]:]/g," ").slice(0,31); while(usados.has(nom)) nom=nom.slice(0,28)+"_"+usados.size; usados.add(nom);
+    X.utils.book_append_sheet(wb, ws, nom);
+  }
+  return X.write(wb, {bookType:"xlsx", type:"base64"});
+}
+function invEmailCostos(fecha, datos){
+  const td='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px"', tdr='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;text-align:right"';
+  const th='style="text-align:left;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"', thr='style="text-align:right;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"';
+  let tc=0,tm=0,tp=0;
+  const filas = datos.map(({b,r,c})=>{ if(!r) return `<tr><td ${td}><b>${b.nombre}</b></td><td ${td}>Sin registro</td><td ${tdr}>—</td><td ${tdr}>—</td><td ${tdr}>—</td><td ${tdr}>—</td></tr>`;
+    tc+=c.consumo; tm+=c.merma; tp+=c.pax; const n=invDesviacionesDe(r).length;
+    return `<tr><td ${td}><b>${b.nombre}</b>${n?` <span style="background:#fde2e1;color:#b3261e;border-radius:8px;padding:1px 6px;font-size:11px">${n} negativo(s)</span>`:""}${c.sinCosto.length?` <span style="background:#fff3d6;color:#8a6512;border-radius:8px;padding:1px 6px;font-size:11px">${c.sinCosto.length} sin costo</span>`:""}</td>
+      <td ${td}>${r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar"}<br><span style="color:#8a8578;font-size:12px">${r.responsable||""}</span></td>
+      <td ${tdr}>${c.pax}</td><td ${tdr}><b>${invDinero(c.consumo)}</b></td><td ${tdr}>${c.pax?invDinero(c.consumo/c.pax):"—"}</td><td ${tdr}>${invDinero(c.merma)}</td></tr>`; }).join("");
+  const negs = datos.filter(x=>x.r).map(x=>({b:x.b,n:invDesviacionesDe(x.r)})).filter(x=>x.n.length);
+  const negHtml = negs.length ? negs.map(x=>`<p style="margin:10px 0 4px"><b>${x.b.nombre}</b></p>`+x.n.map(d=>`<div style="background:#fde2e1;color:#b3261e;border-left:3px solid #b3261e;padding:5px 8px;margin:3px 0;font-size:13px"><b>${d.nombre}</b> (#${d.codigo}): ${d.detalle}</div>`).join("")).join("")
+    : `<p style="color:#2f6b4f">Ningún producto quedó con consumo negativo.</p>`;
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a">
+    <p>Costo de los inventarios de A&amp;B del día <b>${fecha}</b>.</p>
+    <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>PAX</th><th ${thr}>Costo consumido</th><th ${thr}>Costo / PAX</th><th ${thr}>Merma</th></tr></thead>
+    <tbody>${filas}</tbody><tfoot><tr><td ${td}><b>Total</b></td><td ${td}></td><td ${tdr}><b>${tp}</b></td><td ${tdr}><b>${invDinero(tc)}</b></td><td ${tdr}>${tp?invDinero(tc/tp):"—"}</td><td ${tdr}><b>${invDinero(tm)}</b></td></tr></tfoot></table>
+    <h3 style="margin:18px 0 4px;font-size:15px">Desviaciones del día (consumo negativo)</h3>${negHtml}
+    <p style="color:#8a8578;font-size:12px;margin-top:14px">Adjunto: detalle de inventarios por bodega con sus costos (Excel). Costo = consumo × costo unitario de Zeus. Reporte automático de Inventario A&amp;B.</p></div>`;
+}
+async function invEnviarReporteCostos(){
+  if(MODE!=="graph" || invHoraMinECActual() < 10*60+30) return {enviado:false};
+  const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
+  applyInvConfig(cfgRemota);
+  const al = INV_CFG.alertas||{};
+  const ayer = sumaDiasYMD(hoyISO(),-1);
+  const para = invDestinatarios(al.correo1030), cc = invDestinatarios(al.cc1030);
+  if(al.activo===false || !para.length || al.ultimoReporteCostos===ayer) return {enviado:false};
+  INV_CFG.alertas = {...al, ultimoReporteCostos:ayer};
+  await invCfgSave();
+  const datos = invDatosDia(await Store.read("Inventario",{noCache:true}), ayer);
+  let adjuntos=[];
+  try{ const b64 = await invExcelDia(ayer, datos);
+    adjuntos=[{"@odata.type":"#microsoft.graph.fileAttachment", name:`Inventarios_AB_${ayer}.xlsx`, contentType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBytes:b64}];
+  }catch(e){ /* si no se pudo armar el Excel, se envía igual el correo */ }
+  await gfetch("/me/sendMail","POST",{message:{
+    subject:`Inventario A&B — costo de inventarios y desviaciones del ${ayer}`,
+    body:{contentType:"HTML", content:invEmailCostos(ayer, datos)},
+    toRecipients:para, ccRecipients:cc, attachments:adjuntos
   }, saveToSentItems:true});
   return {enviado:true};
 }
@@ -1789,7 +1890,7 @@ function InventarioCierre({user,toast,modo}){
         const desv = invDetectarDesviaciones(toSave, historial, INV_CFG.alertas);
         toSave = {...toSave, desviaciones: desv};
         // Días anteriores cargados a mano: se guardan las desviaciones, pero no se manda correo.
-        if(desv.length && !esPasado) invEnviarAlertaDesviaciones(toSave, desv); // no bloquea el cierre si falla
+        // Ya no se envía aviso inmediato a Gerencia General: los consumos negativos van en el correo de las 10:30.
       }
       toSave = {...toSave, servicios: invNormServicios(bodegaObj, toSave.servicios)};
       toSave = await invGuardarFusionado(originalRec.current, toSave);
@@ -2381,51 +2482,27 @@ function InventarioResumen({user,toast}){
    aquí ajusta el correo/umbrales de alerta (antes vivía en Configurar) y
    revisa las desviaciones ya detectadas en los cierres de todas las
    bodegas, sin necesidad de entrar al detalle de cada una. */
-function InventarioDesviaciones({user,toast}){
+/* Configuración de los correos automáticos (sin historial: los consumos
+   negativos del día ya salen en el Resumen y en el correo de las 10:30). */
+function InventarioCorreos({user,toast}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
-  const [filas,setFilas]=useState(null);
-  useEffect(()=>{ (async()=>{
-    const bodegas=INV_CFG.bodegas||[];
-    const out=[];
-    for(const b of bodegas){
-      const regs=await invRegistrosDe(b.codigo);
-      // Igual que en Resumen: no se muestra a Gerencia General hasta que el
-      // Jefe de Operaciones apruebe o ajuste el cierre.
-      for(const r of regs){ const neg=invDesviacionesDe(r); if(r.cerrado && r.aprobado!==false && neg.length){
-        out.push({bodega:b.nombre, fecha:r.fecha, responsable:r.responsable, desviaciones:neg}); } }
-    }
-    out.sort((a,b)=> a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0);
-    setFilas(out.slice(0,60));
-  })(); },[]);
-  const alertas = INV_CFG.alertas || {activo:true, correo:"", umbralMermaPct:15, umbralConsumoPct:40};
-  const puedeConfigurarAlertas = tienePermiso(user,'configurar') || user.rol==='gerencia';
-  async function guardar(){ try{ await invCfgSave(); toast("Configuración de alertas guardada."); }
-    catch(e){ toast("No se pudo guardar: "+(e.message||e)); } }
-  function setAlerta(patch){ INV_CFG.alertas = {...alertas, ...patch}; re(); guardar(); }
-  return <div>
-    <h3 style={{marginTop:24}}>Consumos negativos — últimos cierres y aviso por correo</h3>
-    <p className="hint" style={{marginBottom:10}}>Solo se reportan los productos que quedan con <b style={{color:INV_COLOR_NEG.fg}}>consumo negativo</b>: la cantidad final es mayor que lo que había disponible (inicial + traslados − merma). Casi siempre es un error de conteo o un traslado mal cargado. Se marcan en rojo en el cierre, el historial y aquí.</p>
-    <div className="card" style={{marginBottom:16,padding:"12px 14px"}}>
-      <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,cursor: puedeConfigurarAlertas?"pointer":"default",opacity:puedeConfigurarAlertas?1:.6}}>
-        <input type="checkbox" disabled={!puedeConfigurarAlertas} checked={!!alertas.activo} onChange={e=>setAlerta({activo:e.target.checked})}/>
-        <span>Activar notificaciones automáticas por correo</span>
-      </label>
-      <Field label="Correo de Gerencia General" hint="A esta dirección se envía el aviso cuando un cierre queda con consumo negativo.">
-        <input className="inp" type="email" disabled={!puedeConfigurarAlertas} placeholder="gerencia@playaparaiso.com.ec" value={alertas.correo||""}
-          onChange={e=>setAlerta({correo:e.target.value})} onBlur={guardar}/>
-      </Field>
-      <div className="hint" style={{marginTop:10}}>El correo se envía usando la cuenta de Microsoft con la que se inició sesión en este dispositivo (necesita permiso "Mail.Send", ya solicitado al iniciar sesión). Si nadie ha iniciado sesión con Microsoft en este dispositivo todavía, el envío fallará silenciosamente — la desviación se seguirá viendo aquí de todas formas.</div>
-    </div>
-    <h3>Historial de consumos negativos</h3>
-    {filas===null && <div className="empty">Cargando…</div>}
-    {filas && !filas.length && <div className="empty">No hay cierres con consumo negativo.</div>}
-    {filas && filas.map((f,i)=><div key={i} className="card" style={{marginBottom:10,padding:"12px 14px"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-        <b>{f.bodega}</b><span className="meta">{f.fecha} · {f.responsable||"—"}</span>
-      </div>
-      {f.desviaciones.map(d=><div key={d.codigo+"|"+d.nombre} style={{fontSize:12.5,marginTop:6,padding:"4px 8px",borderLeft:"3px solid "+INV_COLOR_NEG.fg,background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg}}>
-        <b>{d.nombre}</b> (#{d.codigo}): {d.detalle}</div>)}
-    </div>)}
+  const al = INV_CFG.alertas || {};
+  const val = (k,def) => al[k]!=null ? al[k] : def;
+  async function guardar(){ try{ await invCfgSave(); toast("Correos guardados."); }catch(e){ toast("No se pudo guardar: "+(e.message||e)); } }
+  function set(k,v){ INV_CFG.alertas = {...(INV_CFG.alertas||{}), [k]:v}; re(); }
+  const campo=(k,def,label,hint)=><Field label={label} hint={hint}>
+    <input className="inp" placeholder="correo1@playaparaiso.com.ec, correo2@playaparaiso.com.ec" value={val(k,def)} onChange={e=>set(k,e.target.value)} onBlur={guardar}/>
+    {String(val(k,def)||"").trim() && invListaCorreos(val(k,def)).length!==String(val(k,def)).split(/[;,]+/).filter(x=>x.trim()).length &&
+      <div className="hint" style={{color:"#b3261e"}}>Revisa: hay una dirección que no parece un correo válido.</div>}</Field>;
+  return <div className="card inv-noprint" style={{marginTop:24,padding:"12px 14px"}}>
+    <h3 style={{marginTop:0}}>Correos automáticos</h3>
+    <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,cursor:"pointer"}}>
+      <input type="checkbox" checked={al.activo!==false} onChange={e=>{ set("activo",e.target.checked); guardar(); }}/>
+      <span>Enviar los correos automáticos todos los días</span></label>
+    {campo("correo10","estrategia@playaparaiso.com.ec","10:00 — Resumen de gestión de inventarios (para)","Cierres, responsables, PAX, aprobación y costo de cada bodega del día anterior. Separa varios correos con coma.")}
+    {campo("correo1030","","10:30 — Costo de inventarios y desviaciones (para)","Tabla de costos por bodega y consumos negativos del día anterior, con el Excel del detalle de inventarios y sus costos adjunto.")}
+    {campo("cc1030","","10:30 — Con copia a","")}
+    <div className="hint" style={{marginTop:8}}>Se envían desde la cuenta de Microsoft de la primera persona que tenga la app abierta después de esa hora (se revisa cada 5 minutos), una sola vez por día.{al.ultimoReporteDiario?` Último resumen 10:00: ${al.ultimoReporteDiario}.`:""}{al.ultimoReporteCostos?` Último costo 10:30: ${al.ultimoReporteCostos}.`:""}</div>
   </div>;
 }
 /* ===== Corrección puntual: traslados del 25/09/2026 =====
@@ -2576,6 +2653,9 @@ function InventarioCostos({user,toast}){
     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:12}} className="inv-noprint">
       <Field label="Día"><input className="inp" type="date" max={hoyISO()} value={fecha} onChange={e=>e.target.value&&setFecha(e.target.value)}/></Field>
       <button className="btn ghost" onClick={()=>window.print()}><Icon name="filetext" size={15} style={{marginRight:6}}/>Imprimir / PDF</button>
+      <button className="btn ghost" disabled={!datos} onClick={async()=>{ try{ const b64=await invExcelDia(fecha, datos);
+          const a=document.createElement("a"); a.href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,"+b64; a.download=`Inventarios_AB_${fecha}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+        }catch(e){ toast("No se pudo generar el Excel: "+(e.message||e)); } }}><Icon name="download" size={15} style={{marginRight:6}}/>Descargar Excel</button>
     </div>
     <h3 style={{marginTop:0}}>Resumen del {fecha}: cierre, costos y consumos negativos</h3>
     <p className="hint" style={{marginTop:-4,marginBottom:10}}>Toca una bodega para ver el costo por producto, o "Ver inventario" para el detalle completo del día (imprimible).</p>
@@ -2930,7 +3010,7 @@ function Inventario({user,toast}){
     {tab==="servicio" && showServicio && <InventarioServicio user={user} toast={toast}/>}
     {tab==="aprobacion" && showAprobacion && <InventarioAprobacion user={user} toast={toast}/>}
     {tab==="historial" && showHistorial && <InventarioHistorial user={user} toast={toast}/>}
-    {tab==="resumen" && showResumen && <div><InventarioCostos user={user} toast={toast}/><InventarioDesviaciones user={user} toast={toast}/></div>}
+    {tab==="resumen" && showResumen && <div><InventarioCostos user={user} toast={toast}/>{tienePermiso(user,'configurar') && <InventarioCorreos user={user} toast={toast}/>}</div>}
     {tab==="conf" && showConf && <InventarioConfig user={user} toast={toast}/>}
   </div>;
 }
@@ -2946,7 +3026,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-12b";
+const APP_BUILD = "2026-10-13a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
@@ -2974,7 +3054,7 @@ function App(){
              no existe. Si la lectura falla, no se toca nada (ver invCfgRead). */
           if(cfgLeida===null){ // el archivo de configuración no existe: primera vez
             INV_CFG.bodegas=INV_SEED_BODEGAS; INV_CFG_REV_BASE=0; await invCfgSave(); }
-          invEnviarReporteDiario().catch(()=>{});
+          invEnviarCorreosAutomaticos().catch(()=>{});
         }catch(e){ toast("No se pudo leer la configuración de Inventario ("+(e.message||e)+"). Recarga la página; no se cambió nada."); }
         setCfgVer(v=>v+1);
       }
@@ -2982,7 +3062,7 @@ function App(){
     setChecking(false);
   })(); },[]);
   useEffect(()=>{ if(MODE!=="graph") return;
-    const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok){ setConnected(true); invEnviarReporteDiario().catch(()=>{}); } }, 20*60*1000);
+    const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok){ setConnected(true); invEnviarCorreosAutomaticos().catch(()=>{}); } }, 5*60*1000);
     return ()=>clearInterval(t);
   },[]);
   function onLogin(u){ sessionStorage.setItem("pp_inv_user",JSON.stringify(u)); setUser(u); }
