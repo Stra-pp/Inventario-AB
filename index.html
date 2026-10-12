@@ -1083,6 +1083,22 @@ function invCostosDia(rec){
   lineas.sort((a,b)=>(Math.abs(b.total||0))-(Math.abs(a.total||0)));
   return {consumo, merma, lineas, sinCosto, pax: invTotalPax(rec)};
 }
+/* Unidad de medida de cada producto (para que se cuente en la misma unidad que
+   Zeus: KILOS, UNIDAD, LITROS…). Orden: la puesta en la lista de la bodega
+   (Configurar), la del último listado de Zeus subido, la del listado base. */
+const INV_UNIDADES_BASE = (()=>{ const g={"KILOS":["101001","101002","101005","101008","101004","102004","102005","102006","102007","102009","102011","102012","102013","102014","102015","102016","102017","102020","102021","102022","102023","102025","102026","102027","102030","102032","102035","102037","102038","102042","103001","103002","103003","103004","103005","103006","103008","103009","103011","103012","103013","103015","103017","103020","103021","103022","103024","103027","103028","103030","103031","103033","103034","103035","103037","104006","104007","104010","104011","104012","104014","104015","104016","104017","104018","104019","104020","104022","104023","104024","104025","105001","105003","105004","105005","105006","105008","105009","105010","105011","105012","105014","105015","105017","105018","105020","105022","105023","105024","105028","105029","105030","105031","105032","105033","105034","105036","105037","105038","105040","105041","105042","105043","105044","105047","105049","105050","105051","105054","105056","105058","105059","105060","105061","105064","105071","105072","105073","105078","105079","105080","105081","105082","105083","105085","105086","105088","105089","105090","105091","105092","106001","106002","106005","1071006","1071007","108001","108002","108003","108005","108006","108007","108008","108011","108012","108013","108014","108015","108016","108017","108018","108019","108020","108021","108022","108023","108024","108025","108026","108027","108028","108031","108032","108033","1091001","1091002","1091003","1091004","1091005","1091006","1091007","1091009","1091010","1091011","1091012","1091016","1091018","1091019","1091020","1091021","1091022","1091023","1091024","1091025","1091027","1091029","1091030","1091031","1091033","1091034","1091035","1091036","1091037","1091038","1091039","1091040","1091041","1091042","1091044","401017","401023","1091046","1091048","1091049","1091050","1091052","1091053","1091054","1091055","1091056","1091057","1091058","1091059","1091060","1091061","1091062","1091063","1091064","1091065","1091066","1091067","1091068","1091069","1091070","1091071","1091073","1091074","1091076","1091077","1091078","1091079","1091080","1091081","1091082","1091083","1091084","1091086","1091087","1091088","105103","106006","401114","105104","105105","105107","105109","102044","104040","102045","108034","105106","104043","104044","105122","105123","104051","104052","105125","1091089","105126","105127","105130","105131","105132","104053","1091090","104054","103046","105134","105135","105136","105137","1091091","102065","105138","1091092","1091093","1091095","1091096","1091097","103047","101012","1071010","105141","105142","105143","104056","104057","105144","105147","105148","103048","105149","105153","105154","105155","105159","103049","401273","1071011","104061","103051","103052","401291","105165","103053","1091098","102063","5025001","104062","1091099","103082","103070","104064","1091100","1091101","105172","105173","105178","104065","104067","105181","103086","103087","105182","105183","108035","105191","103088","90904011","1091105","103089","105195","105196","105202","108036","108037","104069","105209","401406","106012","104071","102071","103091","105214","108038","105219","108039","105225","104091","105226","105228","1091106","105231","105232"],"UNIDAD":["103014","103016","103019","103025","103029","104005","104009","104013","105002","105027","105035","105052","105053","105055","105065","105066","105067","105068","105069","105074","105075","105084","105087","105093","105099","106003","106004","302032","302033","302034","302036","401002","401003","401006","401008","401009","401010","401012","401013","401014","401021","401022","401025","401026","401027","401028","401036","401037","401043","401046","401047","401048","401050","401051","401053","401054","401055","401056","401057","401059","401060","401061","401062","401064","401065","401066","401067","401070","401072","401073","401074","401075","401076","1091047","201001","201002","201003","201004","201005","201006","201007","201008","201009","201010","201011","201012","201013","201014","201015","201016","201017","302001","302004","301002","301003","301004","301005","301006","301007","301008","301009","302008","302009","302012","302023","302024","401078","401079","401080","401082","401084","401085","401087","401088","401091","801001","801002","801003","801004","801005","801006","801007","801008","105117","105116","801013","105118","801015","801016","801019","801021","801022","801023","801024","801025","801026","801027","801028","104033","104037","104039","801032","801037","801038","801042","801043","801050","801055","801056","106007","302046","302047","401098","401102","401104","401105","401111","401117","401118","401119","401133","401134","401137","401138","401142","401144","401147","401153","401154","401157","401159","401162","401163","401164","601017","601022","601024","601035","601040","801057","801058","105108","401169","201018","401170","201019","401171","401173","105110","105112","105113","401179","401180","106008","401182","106009","302050","401174","105111","401185","401186","401187","401188","401189","401190","401191","401192","401193","401194","104048","201020","401195","801059","801060","801061","801062","801063","801064","401199","401200","105120","105121","801065","401205","401206","401207","401208","401209","401210","401211","401212","105124","801067","801068","301010","201021","301011","201022","105133","401214","401215","401216","401217","801069","801070","401219","302051","302052","401220","401221","401222","401223","401224","401225","401226","302053","401229","401231","401232","401233","401234","401235","401236","105139","801071","801072","302054","302055","401239","401240","1091094","401241","401242","401029","401243","401245","301012","401246","401247","401248","401249","401250","801073","105152","401251","401252","401255","201023","401257","401259","401261","401262","401263","401264","201024","201025","401265","401266","105157","105158","801074","801075","201026","201027","201028","302056","302057","801076","801077","801078","401270","401271","401272","401275","801079","801080","801081","401277","201029","201030","103050","201031","401278","401279","401281","105160","201032","401282","401283","401284","401285","105163","106010","302059","401286","401287","401288","401289","401292","401294","401295","401296","105164","401297","401299","201034","401302","401303","401304","105166","801082","801083","801084","801085","105168","801086","801087","401306","201035","401307","201036","401309","401310","401311","401312","401313","401316","401317","401318","302069","401319","302070","401320","401321","401323","302071","401324","301013","302072","302073","401325","401326","801088","201037","401327","401329","401330","401331","801091","801092","401332","401333","401334","401335","201038","105171","801093","801094","801095","801096","801097","801098","801099","801100","801101","801102","801104","801105","801106","801107","401336","201039","201040","302078","401337","1091102","201041","302079","401338","301015","401339","401340","401341","401342","401343","105174","105175","105176","105177","105180","401344","201042","201048","201049","301016","401345","401346","401347","401349","90721001","90709001","90703001","90903001","90901002","90709002","90704001","90904001","90840001","201050","201051","90841002","90840002","90842001","401350","401351","401352","104068","302080","302081","105185","105186","105187","105188","201052","201053","201054","401353","401354","90850002","90850003","90850004","90850005","201055","201056","201057","201058","90904002","90904003","201059","401358","401359","401360","401362","401363","302082","401364","90904004","90904005","401365","201060","401366","90904006","201061","201062","401367","401368","401369","1091103","801108","801109","801110","90904007","90904008","801112","801113","801114","90904009","90904010","90904012","401370","401371","90721002","90721003","90721004","401373","801115","801116","401374","105197","105198","105199","105200","105201","401375","105203","90850006","401376","401377","201063","105204","105205","302083","90904015","401379","401380","401381","401382","401383","401384","401386","106011","90904016","401387","90904017","90904018","105206","801117","401388","401389","401390","401391","401392","105207","90904019","90904020","105208","90904022","90904023","90904024","90904028","201064","201065","201066","401399","401402","401403","401408","401409","401410","401411","801119","302086","201067","104072","104073","104074","104075","104076","104077","104078","104079","104080","104081","104082","104083","104084","104085","104086","104087","104088","104089","801120","801121","801122","401415","500034","500035","500036","500037","500038","500039","500040","500041","500042","500043","500044","500045","500046","401417","500047","401421","201068","201069","401422","401423","401424","801124","105213","401429","105215","105216","105217","105218","104090","106013","106014","106015","106016","106017","106018","801125","1071012","106019","105221","105223","105224","401430","401431","401432","401433","105227","401434","401436","401437","302088","105229","401445","401446","105230","401447","302089","90721005","90721006","90721007","90721008","90721009","90721010","90721011","90721012","90904031","201070","90904033","90904034","90904035","90904036","90904037","90904038","90904039","90904040","90904041","90904042","90721013","90904045","90904046","90721014","90721015","90721016","90904047","90904048","90904049","90904050"],"LITROS":["104001","104003","104008","104027","104028","104029","104030","105039","105045","105057","105094","105095","105096","105097","105098","105102","1071001","1071002","1071004","302028","302029","302030","302035","302037","302038","302039","302041","302043","320044","302045","401004","401018","401035","302003","302005","302006","302011","302013","302015","302016","302017","302018","302019","302020","302021","302022","302025","401081","401086","401095","401103","401107","401160","1071008","1071009","401181","104041","104042","104049","401203","401172","104032","401237","401238","105150","105151","401258","401260","105156","401274","401276","104058","104059","105161","105162","104060","302058","401290","302061","302074","302075","302076","104063","104066","105194","401378","302084","90850007","401407","302085","105210","105211","105212","401418","105222","302090"],"PAQUETE":["104004","104026","105025","105026","105046","105063","105070","105076","401005","401024","401030","401031","401032","401033","401034","401040","401052","401077","401083","401090","801017","104031","104034","401096","401097","401100","401101","401108","401109","401110","401115","401120","401121","401122","401125","401129","601043","401168","401176","401177","401183","401184","104050","105119","401201","401202","401204","401218","401227","401228","401230","105140","401244","401253","401254","401256","401268","401269","401280","401293","401301","401305","401315","105170","401328","105179","401355","401356","401357","401372","401385","401397","401398","401400","401401","401404","401405","401412","401413","401414","401416","401419","401420","401426","401435","401438","401439","401440","401441","401442","401443","401444","401448","90904032"],"CAJA":["105016","105019","105021","105100","401015","401016","401038","401041","401049","104038","104055","105169","201047","201045","201046","201044","201043","105184","105189","105190","105192","105193","105220","401449","401450"],"UNIDADES":["105101"],"SACO":["401011"],"PAQUETES":["401089"],"PARES":["401112"],"GALON":["401196","401197","401198","90901001","90904025","90904044"],"METROS":["401298"]}; const m={}; for(const u in g) for(const c of g[u]) m[c]=u; return m; })();
+function invUnidad(it, bodega){
+  if(it && it.unidad) return it.unidad;
+  const b = bodega && invBodega(bodega);
+  const p = b && (b.productos||[]).find(x=>(x.codigo||"")===((it&&it.codigo)||"") && x.nombre===(it&&it.nombre));
+  if(p && p.unidad) return p.unidad;
+  const k = String((it&&it.codigo)||"").trim();
+  const zu = (INV_CFG.costos && INV_CFG.costos.zeusUnidades) || {};
+  return zu[k] || INV_UNIDADES_BASE[k] || "";
+}
+function InvUnidad({it,bodega}){ const u=invUnidad(it,bodega);
+  return u ? <span style={{display:"inline-block",marginLeft:6,padding:"0 6px",borderRadius:6,background:"#e6f2f3",color:"var(--ocean-d)",fontSize:10.5,fontWeight:800,letterSpacing:.3,verticalAlign:"middle"}}>{u}</span>
+           : <span style={{display:"inline-block",marginLeft:6,padding:"0 6px",borderRadius:6,background:"#fff3d6",color:"#8a6512",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>sin unidad</span>; }
 function invDinero(n){ if(n===null||n===undefined||isNaN(+n)) return "—"; const v=Math.round((+n)*100)/100; return (v<0?"-$":"$")+Math.abs(v).toFixed(2); }
 /* Desviaciones: SOLO consumo negativo (la cantidad final es mayor que lo que
    había disponible). Es lo único que de verdad indica un error de conteo o de
@@ -1876,7 +1892,7 @@ function InventarioCierre({user,toast,modo}){
       const neg = cons < -0.001;
       return <div key={it.codigo+"|"+it.nombre} className="item" style={{display:"flex",alignItems:"center",padding:"9px 10px",gap:6,...(neg?{background:INV_COLOR_NEG.bg,borderColor:"#f1a9a4"}:{})}}>
         <div style={{flex:"1 1 auto",minWidth:0}}>
-          <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:10.5,padding:"1px 6px"}}>NUEVO</span>}</div>
+          <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}<InvUnidad it={it} bodega={rec.bodega}/>{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:10.5,padding:"1px 6px"}}>NUEVO</span>}</div>
           <div className="meta">#{it.codigo}</div>
         </div>
         {editaInicial
@@ -2147,7 +2163,7 @@ function InventarioDetalle({r,user,toast,onEliminado}){
         const neg = cons < -0.001;
         return <div key={it.codigo+"|"+it.nombre} style={{display:"flex",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:12.5,...(neg?{background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg}:{})}}>
           <div style={{flex:"1 1 auto",minWidth:0}}>
-            <div style={{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:9.5,padding:"1px 5px"}}>NUEVO</span>}</div>
+            <div style={{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nombre}<InvUnidad it={it} bodega={r.bodega}/>{it.nuevo && <span className="pill" style={{marginLeft:6,background:"#fbe6e6",color:"#a83232",fontSize:9.5,padding:"1px 5px"}}>NUEVO</span>}</div>
             <div className="meta" style={{fontSize:10.5}}>#{it.codigo}</div>
           </div>
           <div style={{width:56,textAlign:"right"}}>{invFmt(it.inicial)}</div>
@@ -2387,7 +2403,7 @@ function InventarioDesviaciones({user,toast}){
     catch(e){ toast("No se pudo guardar: "+(e.message||e)); } }
   function setAlerta(patch){ INV_CFG.alertas = {...alertas, ...patch}; re(); guardar(); }
   return <div>
-    <h3 style={{marginTop:0}}>Desviaciones: consumo negativo</h3>
+    <h3 style={{marginTop:24}}>Consumos negativos — últimos cierres y aviso por correo</h3>
     <p className="hint" style={{marginBottom:10}}>Solo se reportan los productos que quedan con <b style={{color:INV_COLOR_NEG.fg}}>consumo negativo</b>: la cantidad final es mayor que lo que había disponible (inicial + traslados − merma). Casi siempre es un error de conteo o un traslado mal cargado. Se marcan en rojo en el cierre, el historial y aquí.</p>
     <div className="card" style={{marginBottom:16,padding:"12px 14px"}}>
       <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,cursor: puedeConfigurarAlertas?"pointer":"default",opacity:puedeConfigurarAlertas?1:.6}}>
@@ -2400,7 +2416,7 @@ function InventarioDesviaciones({user,toast}){
       </Field>
       <div className="hint" style={{marginTop:10}}>El correo se envía usando la cuenta de Microsoft con la que se inició sesión en este dispositivo (necesita permiso "Mail.Send", ya solicitado al iniciar sesión). Si nadie ha iniciado sesión con Microsoft en este dispositivo todavía, el envío fallará silenciosamente — la desviación se seguirá viendo aquí de todas formas.</div>
     </div>
-    <h3>Desviaciones detectadas</h3>
+    <h3>Historial de consumos negativos</h3>
     {filas===null && <div className="empty">Cargando…</div>}
     {filas && !filas.length && <div className="empty">No hay cierres con consumo negativo.</div>}
     {filas && filas.map((f,i)=><div key={i} className="card" style={{marginBottom:10,padding:"12px 14px"}}>
@@ -2546,7 +2562,7 @@ function InventarioAccesos({colabs,toggleAccesoInv,toggleAcceso,toggleAccesoServ
    completarlos en Configurar → Costos. */
 function InventarioCostos({user,toast}){
   const [fecha,setFecha]=useState(sumaDiasYMD(hoyISO(),-1));
-  const [datos,setDatos]=useState(null); const [abierta,setAbierta]=useState(null);
+  const [datos,setDatos]=useState(null); const [abierta,setAbierta]=useState(null); const [ver,setVer]=useState(null);
   async function cargar(f){ setDatos(null);
     try{ await invCfgRefrescar();
       const all = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.fecha===f));
@@ -2561,14 +2577,15 @@ function InventarioCostos({user,toast}){
       <Field label="Día"><input className="inp" type="date" max={hoyISO()} value={fecha} onChange={e=>e.target.value&&setFecha(e.target.value)}/></Field>
       <button className="btn ghost" onClick={()=>window.print()}><Icon name="filetext" size={15} style={{marginRight:6}}/>Imprimir / PDF</button>
     </div>
-    <h3 style={{marginTop:0}}>Costo de lo consumido — {fecha}</h3>
+    <h3 style={{marginTop:0}}>Resumen del {fecha}: cierre, costos y consumos negativos</h3>
+    <p className="hint" style={{marginTop:-4,marginBottom:10}}>Toca una bodega para ver el costo por producto, o "Ver inventario" para el detalle completo del día (imprimible).</p>
     {datos===null && <div className="empty">Cargando…</div>}
     {datos && <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
       <thead><tr><th style={{...th,textAlign:"left"}}>Bodega</th><th style={th}>Estado</th><th style={th}>PAX</th><th style={th}>Costo consumido</th><th style={th}>Costo / PAX</th><th style={th}>Merma</th></tr></thead>
       <tbody>{datos.map(({b,r,c})=>{ const open=abierta===b.codigo;
         return [<tr key={b.codigo} style={{cursor:r?"pointer":"default"}} onClick={()=>r&&setAbierta(open?null:b.codigo)}>
-          <td style={{...td,textAlign:"left",fontWeight:700}}>{r?(open?"▾ ":"▸ "):""}{b.nombre}{c&&c.sinCosto.length?<span className="pill" style={{marginLeft:6,background:"#fff3d6",color:"#8a6512",fontSize:11}}>{c.sinCosto.length} sin costo</span>:null}{r&&invDesviacionesDe(r).length?<span className="pill" style={{marginLeft:6,background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg,fontSize:11}}>{invDesviacionesDe(r).length} negativo(s)</span>:null}</td>
-          <td style={td}>{!r?"Sin registro":r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado"):"Sin cerrar"}</td>
+          <td style={{...td,textAlign:"left",fontWeight:700}}>{r?(open?"▾ ":"▸ "):""}{b.nombre}{r && <span className="inv-noprint" style={{marginLeft:8,color:"var(--ocean-d)",fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={e=>{e.stopPropagation(); setVer(r);}}>Ver inventario</span>}{c&&c.sinCosto.length?<span className="pill" style={{marginLeft:6,background:"#fff3d6",color:"#8a6512",fontSize:11}}>{c.sinCosto.length} sin costo</span>:null}{r&&invDesviacionesDe(r).length?<span className="pill" style={{marginLeft:6,background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg,fontSize:11}}>{invDesviacionesDe(r).length} negativo(s)</span>:null}</td>
+          <td style={td}>{!r?"Sin registro":r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar"}{r&&r.responsable?<div className="meta">{r.responsable}</div>:null}</td>
           <td style={td}>{c?c.pax:"—"}</td>
           <td style={{...td,fontWeight:700}}>{c?invDinero(c.consumo):"—"}</td>
           <td style={td}>{c&&c.pax?invDinero(c.consumo/c.pax):"—"}</td>
@@ -2589,6 +2606,14 @@ function InventarioCostos({user,toast}){
       <tfoot><tr><td style={{...td,textAlign:"left",fontWeight:800}}>Total</td><td style={td}></td><td style={td}>{tot.p}</td>
         <td style={{...td,fontWeight:800}}>{invDinero(tot.c)}</td><td style={td}>{tot.p?invDinero(tot.c/tot.p):"—"}</td><td style={{...td,fontWeight:700}}>{invDinero(tot.m)}</td></tr></tfoot>
     </table></div>}
+    {datos && (()=>{ const negs=datos.filter(x=>x.r).map(x=>({b:x.b, n:invDesviacionesDe(x.r)})).filter(x=>x.n.length);
+      return <div style={{marginTop:14}}><h3 style={{marginBottom:6}}>Consumos negativos del {fecha}</h3>
+        {!negs.length ? <div className="hint">Ningún producto quedó con consumo negativo este día.</div>
+          : negs.map(x=><div key={x.b.codigo} style={{marginBottom:8}}><b>{x.b.nombre}</b>
+              {x.n.map(d=><div key={d.codigo+"|"+d.nombre} style={{fontSize:12.5,marginTop:4,padding:"4px 8px",borderLeft:"3px solid "+INV_COLOR_NEG.fg,background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg}}><b>{d.nombre}</b> (#{d.codigo}): {d.detalle}</div>)}</div>)}
+      </div>; })()}
+    {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide>
+      <InventarioDetalle r={ver} user={user} toast={toast} onEliminado={()=>{setVer(null);cargar(fecha);}}/></Modal>}
     {datos && tot.s>0 && <div className="hint" style={{marginTop:10,color:"#8a6512"}}>Hay {tot.s} producto(s) con movimiento y sin costo: no suman al total. Complétalos en Configurar → Costos.</div>}
     <div className="hint" style={{marginTop:10}}>Costo consumido = consumo del día × costo unitario (columna "Costo" del listado de Zeus, o el costo puesto a mano). Los productos en <b style={{color:INV_COLOR_NEG.fg}}>rojo</b> tienen consumo negativo y restan del total hasta que se corrijan. Los días sin cerrar se calculan con lo registrado hasta ahora.</div>
   </div>;
@@ -2601,16 +2626,17 @@ async function invLeerPdfCostos(file){
     sc.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; sc.onload=ok; sc.onerror=()=>ko(new Error("No se pudo cargar el lector de PDF")); document.head.appendChild(sc); });
     window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }
   const pdf = await window.pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
-  const mapa={}; let fechaImp="";
+  const mapa={}, unidades={}; let fechaImp="";
   for(let n=1;n<=pdf.numPages;n++){
     const tc = await (await pdf.getPage(n)).getTextContent();
     const filas = {};
     for(const it of tc.items){ const y=Math.round(it.transform[5]/2)*2; (filas[y]=filas[y]||[]).push({x:it.transform[4], t:it.str}); }
     for(const y of Object.keys(filas)){ const linea = filas[y].sort((a,b)=>a.x-b.x).map(o=>o.t).join(" ").replace(/\s+/g," ").trim();
       const m = linea.match(/^(\d{5,9}) .*? ([\d]+\.\d+) ([\d]+\.\d+)$/); if(m) mapa[m[1]] = Math.round(parseFloat(m[3])*10000)/10000;
+      const mu = linea.match(/^(\d{5,9}) .* (UNIDADES|UNIDAD|KILOS|LITROS|PAQUETES|PAQUETE|CAJA|GALON|SACO|PARES|METROS|[A-Z]+) [\d]+\.\d+ [\d]+\.\d+$/); if(mu) unidades[mu[1]] = mu[2];
       const f = linea.match(/(\d{4})\/(\d{2})\/(\d{2})/); if(!fechaImp && f) fechaImp=`${f[1]}-${f[2]}-${f[3]}`; }
   }
-  return {mapa, fecha: fechaImp || hoyISO()};
+  return {mapa, unidades, fecha: fechaImp || hoyISO()};
 }
 function InventarioConfigCostos({user,toast}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
@@ -2624,10 +2650,10 @@ function InventarioConfigCostos({user,toast}){
   function setManual(k, v){ const man={...(costos.manual||{})}; if(v===""||v==null) delete man[k]; else man[k]=+v; guardar({...costos, manual:man}); }
   async function subir(e){ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
     setSubiendo(true);
-    try{ const {mapa, fecha} = await invLeerPdfCostos(f); const n=Object.keys(mapa).length;
+    try{ const {mapa, unidades, fecha} = await invLeerPdfCostos(f); const n=Object.keys(mapa).length;
       if(n<50){ toast(`El PDF no parece el listado de costos de Zeus (solo se leyeron ${n} productos). No se cambió nada.`); return; }
       if(!window.confirm(`Se leyeron ${n} productos con costo (listado del ${fecha}). ¿Reemplazar el listado de costos vigente?`)) return;
-      await guardar({...costos, zeus:mapa, zeusFecha:fecha, zeusPor:user.nombre}, `Costos actualizados: ${n} productos.`);
+      await guardar({...costos, zeus:mapa, zeusUnidades:unidades, zeusFecha:fecha, zeusPor:user.nombre}, `Costos y unidades actualizados: ${n} productos.`);
     }catch(err){ toast("No se pudo leer el PDF: "+(err.message||err)); }
     finally{ setSubiendo(false); } }
   const qq=q.trim().toUpperCase();
@@ -2737,8 +2763,8 @@ function InventarioConfig({user,toast}){
     {jefaturasYGerencia.map(u=><div key={u.id} className="card" style={{marginBottom:10,padding:"10px 14px"}}>
       <b>{u.nombre}</b>
       <div className="fgrid" style={{marginTop:8}}>
-        {['resumen','desviaciones','costos','configurar'].map(clave=>{ const on=tienePermiso(u,clave);
-          const etiqueta={resumen:'Resumen Gerencial',desviaciones:'Desviaciones',costos:'Costos diarios',configurar:'Configurar'}[clave];
+        {['resumen','configurar'].map(clave=>{ const on=tienePermiso(u,clave);
+          const etiqueta={resumen:'Resumen Gerencial',desviaciones:'Resumen (consumos negativos)',costos:'Resumen (costos)',configurar:'Configurar'}[clave];
           return <span key={clave} className="pill" style={{cursor:"pointer",background:on?"#e6f2f3":"#f1f3f3",color:on?"var(--ocean-d)":"var(--muted)"}}
             onClick={()=>togglePermiso(u.nombre,clave)}>{on?"✓ ":""}{etiqueta}</span>; })}
       </div>
@@ -2796,14 +2822,14 @@ function InventarioConfigBodega({b,user,toast,onSave,onDel,onChange}){
     b.productos=(b.productos||[]).filter((p,j)=>j!==idx); onChange(); onSave(); }
   async function guardarEdicion(){
     const prods=(b.productos||[]).slice(); const p=prods[edit.idx]; if(!p){ setEdit(null); return; }
-    const c=edit.codigo.trim(), n=edit.nombre.trim(); if(!n){ toast("El nombre no puede quedar vacío."); return; }
-    const cambiaCod = c!==(p.codigo||""), cambiaNom = n!==p.nombre;
-    if(!cambiaCod && !cambiaNom){ setEdit(null); return; }
+    const c=edit.codigo.trim(), n=edit.nombre.trim(), u=(edit.unidad||"").trim().toUpperCase(); if(!n){ toast("El nombre no puede quedar vacío."); return; }
+    const cambiaCod = c!==(p.codigo||""), cambiaNom = n!==p.nombre, cambiaUni = u!==(p.unidad||"");
+    if(!cambiaCod && !cambiaNom && !cambiaUni){ setEdit(null); return; }
     const jOtro = cambiaCod && c ? prods.findIndex((x,j)=>j!==edit.idx && x.codigo===c) : -1;
     const otro = jOtro>=0 ? prods[jOtro] : null;
     if(otro && !window.confirm(`El código ${c} ya lo tiene "${otro.nombre}". ¿Intercambiar los códigos? (${p.nombre} queda con ${c} y ${otro.nombre} con ${p.codigo||"(sin código)"})`)) return;
     const viejo=p.codigo||"", nombreViejo=p.nombre;
-    prods[edit.idx]={...p, codigo:c, nombre:n};
+    prods[edit.idx]={...p, codigo:c, nombre:n, unidad:u};
     if(otro) prods[jOtro]={...otro, codigo:viejo};
     b.productos=prods; setEdit(null); onChange();
     if(!(await onSave())) return;
@@ -2832,18 +2858,21 @@ function InventarioConfigBodega({b,user,toast,onSave,onDel,onChange}){
         <button className="btn primary" onClick={addProd}><Icon name="plus" size={15}/></button>
       </div>
       <input className="inp" style={{marginBottom:8}} placeholder="Buscar por nombre o código…" value={q} onChange={e=>setQ(e.target.value)}/>
+      <datalist id="inv-unidades">{["KILOS","UNIDAD","LITROS","PAQUETE","CAJA","GALON","PORCION","BOTELLA"].map(u=><option key={u} value={u}/>)}</datalist>
+      <div className="hint" style={{marginBottom:6}}>La unidad sale del listado de Zeus por el código. Si un producto se cuenta distinto (por ejemplo, porciones), pulsa Editar y pon su unidad.</div>
       <div style={{maxHeight:360,overflowY:"auto"}}>
         {filtrada.map(({p,idx})=> edit && edit.idx===idx
           ? <div key={idx} style={{display:"flex",gap:6,alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)"}}>
               <input className="inp" style={{maxWidth:110}} value={edit.codigo} onChange={e=>setEdit({...edit,codigo:e.target.value})} placeholder="Código"/>
               <input className="inp" value={edit.nombre} onChange={e=>setEdit({...edit,nombre:e.target.value})}/>
+              <input className="inp" list="inv-unidades" style={{maxWidth:110}} placeholder={invUnidad({codigo:edit.codigo})||"Unidad"} value={edit.unidad} onChange={e=>setEdit({...edit,unidad:e.target.value})}/>
               <button className="btn primary" style={{padding:"6px 10px"}} onClick={guardarEdicion}>Guardar</button>
               <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit(null)}>✕</button>
             </div>
           : <div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 2px",borderBottom:"1px solid var(--line)",fontSize:13}}>
-              <div>{p.nombre} <span className="meta">#{p.codigo||"sin código"}</span></div>
+              <div>{p.nombre}<InvUnidad it={p} bodega={b.codigo}/> <span className="meta">#{p.codigo||"sin código"}</span></div>
               <div style={{display:"flex",gap:6}}>
-                <button className="btn ghost" style={{padding:"5px 10px",fontSize:12.5,background:"#e6f2f3",color:"var(--ocean-d)",borderColor:"#bcdfe2"}} title="Editar código o nombre" onClick={()=>setEdit({idx,codigo:p.codigo||"",nombre:p.nombre})}><Icon name="edit" size={13} style={{marginRight:4}}/>Editar</button>
+                <button className="btn ghost" style={{padding:"5px 10px",fontSize:12.5,background:"#e6f2f3",color:"var(--ocean-d)",borderColor:"#bcdfe2"}} title="Editar código o nombre" onClick={()=>setEdit({idx,codigo:p.codigo||"",nombre:p.nombre,unidad:p.unidad||""})}><Icon name="edit" size={13} style={{marginRight:4}}/>Editar</button>
                 <button className="iconbtn" style={{background:"#fbe6e6",color:"#a83232"}} onClick={()=>delProd(idx)}><Icon name="trash" size={13}/></button>
               </div>
             </div>)}
@@ -2868,7 +2897,7 @@ function Inventario({user,toast}){
      el día cada bodega sin poder editar nada — mismo reporte de sólo lectura
      que ve Gerencia, pero explícitamente concedido por Desarrollador en
      Configurar, no a cualquier cuenta de jefatura del hotel. */
-  const showResumen = tienePermiso(user,'resumen');
+  const showResumen = tienePermiso(user,'resumen') || tienePermiso(user,'desviaciones') || tienePermiso(user,'costos');
   /* Gerencia General, por defecto, SOLO ve la pestaña de Desviaciones — no el
      detalle operativo (Cierre/Servicio/Historial/Resumen) ni Configurar. El
      Desarrollador sigue viendo todo. Ambos pueden ajustar aquí el correo y
@@ -2895,17 +2924,13 @@ function Inventario({user,toast}){
       {showAprobacion && <button className={tab==="aprobacion"?"on":""} onClick={()=>setTab("aprobacion")}><Icon name="check" size={15} style={{marginRight:6}}/>Aprobación</button>}
       {showHistorial && <button className={tab==="historial"?"on":""} onClick={()=>setTab("historial")}>Historial</button>}
       {showResumen && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}><Icon name="trendup" size={15} style={{marginRight:6}}/>Resumen Gerencial</button>}
-      {showDesviaciones && <button className={tab==="desviaciones"?"on":""} onClick={()=>setTab("desviaciones")}><Icon name="bell" size={15} style={{marginRight:6}}/>Desviaciones</button>}
-      {showCostos && <button className={tab==="costos"?"on":""} onClick={()=>setTab("costos")}>$ Costos diarios</button>}
       {showConf && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
     </div>}
     {tab==="cierre" && showCierre && <InventarioCierre user={user} toast={toast} modo={modoCierre}/>}
     {tab==="servicio" && showServicio && <InventarioServicio user={user} toast={toast}/>}
     {tab==="aprobacion" && showAprobacion && <InventarioAprobacion user={user} toast={toast}/>}
     {tab==="historial" && showHistorial && <InventarioHistorial user={user} toast={toast}/>}
-    {tab==="resumen" && showResumen && <InventarioResumen user={user} toast={toast}/>}
-    {tab==="desviaciones" && showDesviaciones && <InventarioDesviaciones user={user} toast={toast}/>}
-    {tab==="costos" && showCostos && <InventarioCostos user={user} toast={toast}/>}
+    {tab==="resumen" && showResumen && <div><InventarioCostos user={user} toast={toast}/><InventarioDesviaciones user={user} toast={toast}/></div>}
     {tab==="conf" && showConf && <InventarioConfig user={user} toast={toast}/>}
   </div>;
 }
@@ -2921,7 +2946,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-12a";
+const APP_BUILD = "2026-10-12b";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
