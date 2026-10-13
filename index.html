@@ -447,11 +447,12 @@ async function gfetch(path,method="GET",body=null,raw=false,headers=null,_retry)
   let r; try{ r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null,signal:ctrl.signal}); }
   catch(e){ clearTimeout(to); throw new Error("conexión: "+(e.name==="AbortError"?"tiempo de espera agotado":e.message)); }
   clearTimeout(to);
-  if(r.status===204){ SESSION_EXPIRED=false; return null; }
+  if(r.status===204 || r.status===202){ SESSION_EXPIRED=false; return null; } // 202: sendMail aceptado, sin cuerpo
   if(r.status===401 && !_retry){ const ok=await refreshToken(); if(ok) return gfetch(path,method,body,raw,headers,true); }
   if(!r.ok){ let extra=""; try{ const j=await r.json(); extra=j.error&&j.error.message?(" — "+j.error.message):""; }catch{} throw new Error(method+" "+path.split("?")[0]+": "+r.status+extra); }
   SESSION_EXPIRED=false;
-  return raw?r.arrayBuffer():r.json();
+  if(raw) return r.arrayBuffer();
+  const txt=await r.text(); return txt ? JSON.parse(txt) : null;
 }
 const GraphStore = {
   fileName:t=>`${APP.ms.base}/${APP.ms.files[t]}`,
@@ -1190,17 +1191,19 @@ async function invEnviarCorreosAutomaticos(){
   try{ await invEnviarReporteDiario(); }catch(e){}
   try{ await invEnviarReporteCostos(); }catch(e){}
 }
-async function invEnviarReporteDiario(){
-  if(MODE!=="graph" || !invLimite10amPasado()) return {enviado:false};
+async function invEnviarReporteDiario(prueba){
+  if(MODE!=="graph" || (!prueba && !invLimite10amPasado())) return {enviado:false};
   const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
   applyInvConfig(cfgRemota);
   const al = INV_CFG.alertas||{};
   const ayer = sumaDiasYMD(hoyISO(),-1);
   const para = invDestinatarios(al.correo10!=null ? al.correo10 : "estrategia@playaparaiso.com.ec");
-  if(al.activo===false || !para.length || al.ultimoReporteDiario===ayer) return {enviado:false};
-  // 1) marcar como enviado (si otro dispositivo se adelantó, invCfgSave falla y aquí se detiene)
-  INV_CFG.alertas = {...al, ultimoReporteDiario:ayer};
-  await invCfgSave();
+  if(!prueba){
+    if(al.activo===false || !para.length || al.ultimoReporteDiario===ayer) return {enviado:false};
+    // 1) marcar como enviado (si otro dispositivo se adelantó, invCfgSave falla y aquí se detiene)
+    INV_CFG.alertas = {...al, ultimoReporteDiario:ayer};
+    await invCfgSave();
+  }
   // 2) armar y enviar
   const regs = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.fecha===ayer));
   let totalCosto = 0;
@@ -1218,52 +1221,115 @@ async function invEnviarReporteDiario(){
               invDesviacionesDe(r).length?`${invDesviacionesDe(r).length} producto(s) con consumo negativo`:""].filter(Boolean).join(" · ")||"—"};
   });
   await gfetch("/me/sendMail","POST",{message:{
-    subject:`Inventario A&B — resumen de gestión del ${ayer}`,
+    subject: prueba ? `${prueba.asunto} — resumen de gestión (10:00) del ${ayer}` : `Inventario A&B — resumen de gestión del ${ayer}`,
     body:{contentType:"HTML", content:(filas.totalCosto=invDinero(totalCosto), invEmailReporteDiario(ayer, filas))},
-    toRecipients:para
+    toRecipients: prueba ? invDestinatarios(prueba.para) : para
   }, saveToSentItems:true});
   return {enviado:true};
 }
 /* Excel del detalle de inventarios de un día, con costos. Hoja "Resumen" +
-   una hoja por bodega. Se arma en el navegador con SheetJS. */
-async function invCargarXLSX(){
-  if(window.XLSX) return window.XLSX;
-  await new Promise((ok,ko)=>{ const sc=document.createElement("script"); sc.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+   una hoja por bodega. Se arma en el navegador con ExcelJS (permite formato:
+   colores, bordes, moneda, filas congeladas y filtros). */
+async function invCargarExcelJS(){
+  if(window.ExcelJS) return window.ExcelJS;
+  await new Promise((ok,ko)=>{ const sc=document.createElement("script"); sc.src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
     sc.onload=ok; sc.onerror=()=>ko(new Error("No se pudo cargar el generador de Excel")); document.head.appendChild(sc); });
-  return window.XLSX;
+  return window.ExcelJS;
 }
 function invDatosDia(regs, fecha){
   return (INV_CFG.bodegas||[]).map(b=>{ const r=invSinDuplicados(regs.filter(x=>x.bodega===b.codigo && x.fecha===fecha))[0]; return {b, r, c: r?invCostosDia(r):null}; });
 }
+const XL = {
+  azul:"FF1F4E5F", azulClaro:"FFE6F2F3", gris:"FFF5F3EE", borde:"FFD9D4C7",
+  rojo:"FFFDE2E1", rojoTxt:"FFB3261E", amarillo:"FFFFF3D6", amarilloTxt:"FF8A6512", verde:"FFE2F0D9", verdeTxt:"FF2F6B4F",
+  dinero:'"$"#,##0.00;[Red]-"$"#,##0.00;"—"', cant:'#,##0.00;[Red]-#,##0.00;0', cu:'"$"#,##0.0000;-"$"#,##0.0000;"—"'
+};
+function xlTitulo(ws, texto, sub, nCols){
+  ws.mergeCells(1,1,1,nCols); const t=ws.getCell(1,1); t.value=texto;
+  t.font={bold:true,size:15,color:{argb:"FFFFFFFF"}}; t.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.azul}}; t.alignment={vertical:"middle",indent:1};
+  ws.getRow(1).height=28;
+  ws.mergeCells(2,1,2,nCols); const s=ws.getCell(2,1); s.value=sub; s.font={italic:true,size:10,color:{argb:"FF5C6B6E"}}; s.alignment={indent:1};
+  ws.getRow(2).height=18;
+}
+function xlEncabezado(ws, fila, cols){
+  const r=ws.getRow(fila); cols.forEach((c,i)=>{ r.getCell(i+1).value=c.h; }); r.height=32;
+  r.eachCell(c=>{ c.font={bold:true,color:{argb:"FFFFFFFF"},size:10}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF2A6F77"}};
+    c.alignment={vertical:"middle",horizontal:"center",wrapText:true}; c.border={bottom:{style:"medium",color:{argb:XL.azul}}}; });
+  cols.forEach((c,i)=>{ ws.getColumn(i+1).width=c.w; });
+}
+function xlFila(ws, fila, cols, valores, opt){
+  const r=ws.getRow(fila); valores.forEach((v,i)=>{ r.getCell(i+1).value=(v===undefined||(typeof v==="number"&&isNaN(v)))?null:v; });
+  cols.forEach((c,i)=>{ const cel=r.getCell(i+1);
+    if(c.fmt) cel.numFmt=c.fmt;
+    cel.alignment={vertical:"middle",horizontal:c.al||(c.fmt?"right":"left"),wrapText:!!c.wrap};
+    cel.border={bottom:{style:"thin",color:{argb:XL.borde}}};
+    const bg = opt&&opt.bg ? opt.bg : (fila%2===0 ? XL.gris : null);
+    if(bg) cel.fill={type:"pattern",pattern:"solid",fgColor:{argb:bg}};
+    if(opt&&opt.color) cel.font={color:{argb:opt.color},bold:!!opt.bold}; else if(opt&&opt.bold) cel.font={bold:true};
+  });
+  return r;
+}
 async function invExcelDia(fecha, datos){
-  const X = await invCargarXLSX();
-  const r2 = n => (n===null||n===undefined||isNaN(+n)) ? null : Math.round((+n)*100)/100;
-  const r4 = n => (n===null||n===undefined||isNaN(+n)) ? null : Math.round((+n)*10000)/10000;
-  const wb = X.utils.book_new();
-  const res=[["Inventario A&B — "+fecha],[],["Bodega","Estado","Responsable","PAX","Costo consumido","Costo por PAX","Costo merma","Consumos negativos","Productos sin costo"]];
-  let tc=0, tm=0, tp=0;
+  const EJ = await invCargarExcelJS();
+  const wb = new EJ.Workbook(); wb.creator="Inventario A&B · Playa Paraíso"; wb.created=new Date();
+  const fechaTxt = (()=>{ try{ return new Date(fecha+"T12:00:00").toLocaleDateString("es-EC",{weekday:"long",day:"numeric",month:"long",year:"numeric"}); }catch(e){ return fecha; } })();
+  const sub = `Inventario del ${fechaTxt} · Costos: costo promedio de Zeus · Generado ${fmtDT(new Date().toISOString())}`;
+  // ---- Hoja Resumen ----
+  const colsR=[{h:"Bodega",w:30},{h:"Estado",w:22},{h:"Responsable del conteo",w:24},{h:"PAX",w:8,fmt:"#,##0",al:"center"},
+    {h:"Costo consumido",w:16,fmt:XL.dinero},{h:"Costo por PAX",w:13,fmt:XL.dinero},{h:"Costo merma",w:13,fmt:XL.dinero},
+    {h:"Consumos negativos",w:12,fmt:"0;-0;\"—\"",al:"center"},{h:"Productos sin costo",w:12,fmt:"0;-0;\"—\"",al:"center"}];
+  const wsR = wb.addWorksheet("Resumen",{views:[{state:"frozen",ySplit:4,showGridLines:false}],properties:{tabColor:{argb:XL.azul}},pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
+  xlTitulo(wsR, "Inventario A&B — Resumen de costos", sub, colsR.length);
+  xlEncabezado(wsR, 4, colsR);
+  let f=5, tc=0, tm=0, tp=0, tn=0, ts=0;
   for(const {b,r,c} of datos){
-    if(!r){ res.push([b.nombre,"Sin registro","",null,null,null,null,null,null]); continue; }
-    tc+=c.consumo; tm+=c.merma; tp+=c.pax;
-    res.push([b.nombre, r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar", r.responsable||"", c.pax, r2(c.consumo), c.pax?r2(c.consumo/c.pax):null, r2(c.merma), invDesviacionesDe(r).length, c.sinCosto.length]);
+    if(!r){ xlFila(wsR,f++,colsR,[b.nombre,"Sin registro","",null,null,null,null,null,null],{color:"FF8A8578"}); continue; }
+    const neg=invDesviacionesDe(r).length; tc+=c.consumo; tm+=c.merma; tp+=c.pax; tn+=neg; ts+=c.sinCosto.length;
+    const estado=r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar";
+    const row=xlFila(wsR,f++,colsR,[b.nombre,estado,r.responsable||"",c.pax,c.consumo,c.pax?c.consumo/c.pax:null,c.merma,neg,c.sinCosto.length]);
+    row.getCell(1).font={bold:true};
+    const e=row.getCell(2); e.font={bold:true,color:{argb: r.cerrado&&r.aprobado!==false?XL.verdeTxt:XL.amarilloTxt}};
+    if(neg){ const x=row.getCell(8); x.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.rojo}}; x.font={bold:true,color:{argb:XL.rojoTxt}}; }
+    if(c.sinCosto.length){ const x=row.getCell(9); x.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.amarillo}}; x.font={bold:true,color:{argb:XL.amarilloTxt}}; }
   }
-  res.push(["TOTAL","","",tp,r2(tc),tp?r2(tc/tp):null,r2(tm),null,null]);
-  const wsR = X.utils.aoa_to_sheet(res); wsR["!cols"]=[{wch:28},{wch:20},{wch:20},{wch:7},{wch:15},{wch:13},{wch:12},{wch:12},{wch:12}];
-  X.utils.book_append_sheet(wb, wsR, "Resumen");
+  const tot=xlFila(wsR,f,colsR,["TOTAL","","",tp,tc,tp?tc/tp:null,tm,tn,ts],{bg:XL.azulClaro,bold:true});
+  tot.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); tot.height=22;
+  f+=2;
+  const leyenda=[["Cómo leer este archivo:",null],["• Costo consumido = consumo del día × costo unitario de Zeus.",null],
+    ["• En cada hoja de bodega, las filas en rojo son productos con CONSUMO NEGATIVO (la cantidad final es mayor que lo disponible): revisar conteo o traslados.",XL.rojo],
+    ["• Las filas en amarillo son productos con movimiento pero sin costo cargado en la app.",XL.amarillo]];
+  for(const [t,bg] of leyenda){ wsR.mergeCells(f,1,f,colsR.length); const c=wsR.getCell(f,1); c.value=t; c.font={size:10,bold:t.endsWith(":"),color:{argb:"FF3A3A3A"}};
+    if(bg) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:bg}}; c.alignment={wrapText:true,indent:1}; f++; }
+  // ---- Una hoja por bodega ----
+  const cols=[{h:"Código",w:10,al:"center"},{h:"Producto",w:38,wrap:true},{h:"Unidad",w:10,al:"center"},
+    {h:"Inicial",w:10,fmt:XL.cant},{h:"Traslados (+)",w:11,fmt:XL.cant},{h:"Traslados (−)",w:11,fmt:XL.cant},{h:"Merma",w:9,fmt:XL.cant},
+    {h:"Final",w:10,fmt:XL.cant},{h:"Consumo",w:10,fmt:XL.cant},{h:"Costo unitario",w:13,fmt:XL.cu},{h:"Costo consumo",w:14,fmt:XL.dinero},
+    {h:"Costo merma",w:12,fmt:XL.dinero},{h:"Observación",w:22,wrap:true}];
   const usados=new Set(["Resumen"]);
-  for(const {b,r} of datos){ if(!r) continue;
-    const rows=[[b.nombre+" — "+fecha],[],["Código","Producto","Unidad","Inicial","Traslados (+)","Traslados (−)","Merma","Final","Consumo","Costo unitario","Costo consumo","Costo merma","Observación"]];
-    for(const it of invOrdenCatalogo(r.bodega, r.items||[])){
-      const cons=invConsumoVista(it), cu=invCostoUnit(it), fin=invFinalVista(it);
-      const neg = Math.round(cons*100)/100 < 0;
-      rows.push([it.codigo||"", it.nombre, invUnidad(it,r.bodega), r4(it.inicial||0), r4(it.tp||0), r4(it.tn||0), r4(it.merma||0), r4(fin), r4(cons), cu===null?null:r4(cu),
-        cu===null?null:r2(cons*cu), cu===null?null:r2((+it.merma||0)*cu), neg?"CONSUMO NEGATIVO":(cu===null&&(cons||+it.merma)?"Sin costo":"")]);
-    }
-    const ws=X.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:10},{wch:38},{wch:9},{wch:9},{wch:11},{wch:11},{wch:8},{wch:9},{wch:9},{wch:12},{wch:12},{wch:11},{wch:18}];
+  for(const {b,r,c} of datos){ if(!r) continue;
     let nom=b.nombre.replace(/[\\/?*\[\]:]/g," ").slice(0,31); while(usados.has(nom)) nom=nom.slice(0,28)+"_"+usados.size; usados.add(nom);
-    X.utils.book_append_sheet(wb, ws, nom);
+    const ws=wb.addWorksheet(nom,{views:[{state:"frozen",ySplit:4,xSplit:2,showGridLines:false}],pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
+    xlTitulo(ws, `${b.nombre} — ${fecha}`, `Responsable: ${r.responsable||"—"} · PAX: ${c.pax} · ${r.cerrado?(r.aprobado===false?"Cerrado, por aprobar":"Cerrado y aprobado"):"Sin cerrar"} · Costo consumido: ${invDinero(c.consumo)}`, cols.length);
+    xlEncabezado(ws, 4, cols);
+    let i=5, sc=0, sm=0;
+    for(const it of invOrdenCatalogo(r.bodega, r.items||[])){
+      const cons=invConsumoVista(it), cu=invCostoUnit(it), fin=invFinalVista(it), me=+it.merma||0;
+      const neg = cons!==null && Math.round(cons*100)/100 < 0;
+      const sinC = cu===null && (cons||me);
+      const cc = cu===null||cons===null?null:cons*cu, cm = cu===null?null:me*cu; if(cc) sc+=cc; if(cm) sm+=cm;
+      const row=xlFila(ws,i,cols,[it.codigo||"",it.nombre,invUnidad(it,r.bodega)||"",+it.inicial||0,+it.tp||0,+it.tn||0,me,fin,cons,cu,cc,cm,
+        neg?"CONSUMO NEGATIVO":(sinC?"Sin costo en la app":"")], neg?{bg:XL.rojo,color:XL.rojoTxt}:(sinC?{bg:XL.amarillo,color:XL.amarilloTxt}:null));
+      row.getCell(9).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}}; row.getCell(11).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}};
+      if(neg||sinC) row.getCell(13).font={bold:true,color:{argb:neg?XL.rojoTxt:XL.amarilloTxt}};
+      i++;
+    }
+    if(i>5) ws.autoFilter={from:{row:4,column:1},to:{row:i-1,column:cols.length}};
+    const t=xlFila(ws,i,cols,["","TOTAL","","","","","","","","",sc,sm,""],{bg:XL.azulClaro,bold:true});
+    t.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22;
   }
-  return X.write(wb, {bookType:"xlsx", type:"base64"});
+  const buf = await wb.xlsx.writeBuffer();
+  let bin=""; const u8=new Uint8Array(buf); for(let k=0;k<u8.length;k+=0x8000) bin+=String.fromCharCode.apply(null,u8.subarray(k,k+0x8000));
+  return btoa(bin);
 }
 function invEmailCostos(fecha, datos){
   const td='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px"', tdr='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;text-align:right"';
@@ -1284,25 +1350,27 @@ function invEmailCostos(fecha, datos){
     <h3 style="margin:18px 0 4px;font-size:15px">Desviaciones del día (consumo negativo)</h3>${negHtml}
     <p style="color:#8a8578;font-size:12px;margin-top:14px">Adjunto: detalle de inventarios por bodega con sus costos (Excel). Costo = consumo × costo unitario de Zeus. Reporte automático de Inventario A&amp;B.</p></div>`;
 }
-async function invEnviarReporteCostos(){
-  if(MODE!=="graph" || invHoraMinECActual() < 10*60+30) return {enviado:false};
+async function invEnviarReporteCostos(prueba){
+  if(MODE!=="graph" || (!prueba && invHoraMinECActual() < 10*60+30)) return {enviado:false};
   const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
   applyInvConfig(cfgRemota);
   const al = INV_CFG.alertas||{};
   const ayer = sumaDiasYMD(hoyISO(),-1);
   const para = invDestinatarios(al.correo1030), cc = invDestinatarios(al.cc1030);
-  if(al.activo===false || !para.length || al.ultimoReporteCostos===ayer) return {enviado:false};
-  INV_CFG.alertas = {...al, ultimoReporteCostos:ayer};
-  await invCfgSave();
+  if(!prueba){
+    if(al.activo===false || !para.length || al.ultimoReporteCostos===ayer) return {enviado:false};
+    INV_CFG.alertas = {...al, ultimoReporteCostos:ayer};
+    await invCfgSave();
+  }
   const datos = invDatosDia(await Store.read("Inventario",{noCache:true}), ayer);
   let adjuntos=[];
   try{ const b64 = await invExcelDia(ayer, datos);
     adjuntos=[{"@odata.type":"#microsoft.graph.fileAttachment", name:`Inventarios_AB_${ayer}.xlsx`, contentType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBytes:b64}];
   }catch(e){ /* si no se pudo armar el Excel, se envía igual el correo */ }
   await gfetch("/me/sendMail","POST",{message:{
-    subject:`Inventario A&B — costo de inventarios y desviaciones del ${ayer}`,
+    subject: prueba ? `${prueba.asunto} — costo de inventarios y desviaciones (10:30) del ${ayer}` : `Inventario A&B — costo de inventarios y desviaciones del ${ayer}`,
     body:{contentType:"HTML", content:invEmailCostos(ayer, datos)},
-    toRecipients:para, ccRecipients:cc, attachments:adjuntos
+    toRecipients: prueba ? invDestinatarios(prueba.para) : para, ccRecipients: prueba ? invDestinatarios(prueba.cc||"") : cc, attachments:adjuntos
   }, saveToSentItems:true});
   return {enviado:true};
 }
@@ -3034,7 +3102,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-13b";
+const APP_BUILD = "2026-10-13c";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
