@@ -1043,7 +1043,9 @@ function invFmt(n){ if(n===null||n===undefined||n==="") return "—";
 const INV_SERVICIOS_SUGERIDAS = ["Desayuno","Almuerzo","Cena"];
 const INV_BODEGAS_BEBIDAS = ["08","15"]; // Sunset Bar Bebidas, Bar Villamar
 function invEsBebidas(bodega){ return !!(bodega && (bodega.esBebidas || INV_BODEGAS_BEBIDAS.includes(bodega.codigo))); }
-function invServiciosDisponibles(bodega){ return invEsBebidas(bodega) ? ["Almuerzo","Cena"] : INV_SERVICIOS_SUGERIDAS; }
+const INV_BODEGAS_SOLO_AC = ["07"]; // Chiringuito Cocina (snacks): solo quienes almuerzan y cenan
+function invSoloAlmuerzoCena(bodega){ return invEsBebidas(bodega) || !!(bodega && INV_BODEGAS_SOLO_AC.includes(bodega.codigo)); }
+function invServiciosDisponibles(bodega){ return invSoloAlmuerzoCena(bodega) ? ["Almuerzo","Cena"] : INV_SERVICIOS_SUGERIDAS; }
 /* Las bodegas de bebidas solo tienen Almuerzo y Cena. Antes, el selector
    mostraba "Almuerzo" pero guardaba "Desayuno" (valor inicial fuera de la
    lista). Se valida al guardar y, lo ya guardado como Desayuno en una bodega
@@ -1108,6 +1110,25 @@ function invUnidad(it, bodega){
 function InvUnidad({it,bodega}){ const u=invUnidad(it,bodega);
   return u ? <span style={{display:"inline-block",marginLeft:6,padding:"0 6px",borderRadius:6,background:"#e6f2f3",color:"var(--ocean-d)",fontSize:10.5,fontWeight:800,letterSpacing:.3,verticalAlign:"middle"}}>{u}</span>
            : <span style={{display:"inline-block",marginLeft:6,padding:"0 6px",borderRadius:6,background:"#fff3d6",color:"#8a6512",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>sin unidad</span>; }
+/* Costo del día según Gerencia General (13/10/2026):
+   - Gasto del día = consumo + merma (la merma NO se descuenta: es gasto del día).
+   - Hotel (todo incluido): cada bodega se divide para sus PAX (personas
+     atendidas registradas en el servicio). Chiringuito solo registra almuerzo
+     y cena. El costo por PAX real del día es la SUMA de los costos por PAX
+     de cada bodega (lo que consume una persona en comida + snacks + bebidas).
+   - La Almeja Playera (Almeja Playera Cocina y Bar Villamar) va en un
+     apartado aparte: costo / tickets (ticket promedio); no se suma ni se
+     promedia con el hotel. */
+const INV_BODEGAS_RESTAURANTE = ["06","15"];
+function invEsRestaurante(b){ return !!(b && (b.esRestaurante || INV_BODEGAS_RESTAURANTE.includes(b.codigo))); }
+function invResumenCostos(datos){
+  const fila = x => { const g = x.c ? x.c.consumo + x.c.merma : null, pax = x.c ? x.c.pax : 0;
+    return {...x, gasto:g, pax, cpp:(g!==null && pax) ? g/pax : null}; };
+  const hotel = (datos||[]).filter(x=>!invEsRestaurante(x.b)).map(fila);
+  const rest = (datos||[]).filter(x=>invEsRestaurante(x.b)).map(fila);
+  const sum = (a,k) => a.reduce((s,x)=>s+(x[k]||0),0);
+  return {hotel, rest, totHotel:{gasto:sum(hotel,"gasto"), cpp:sum(hotel,"cpp")}, totRest:{gasto:sum(rest,"gasto"), tickets:sum(rest,"pax")}};
+}
 function invDinero(n){ if(n===null||n===undefined||isNaN(+n)) return "—"; const v=Math.round((+n)*100)/100; return (v<0?"-$":"$")+Math.abs(v).toFixed(2); }
 /* Desviaciones: SOLO consumo negativo (la cantidad final es mayor que lo que
    había disponible). Es lo único que de verdad indica un error de conteo o de
@@ -1179,8 +1200,8 @@ function invEmailReporteDiario(fecha, filas){
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a">
     <p>Resumen del inventario de A&amp;B del día <b>${fecha}</b> (cierre hasta las 10:00am de hoy).</p>
     <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr>
-      <th ${th}>Bodega</th><th ${th}>Estado</th><th ${th}>Conteo (responsable)</th><th ${th}>PAX</th><th ${th}>Traslados registrados</th><th ${th}>Costo consumido</th><th ${th}>Aprobación</th><th ${th}>Notas</th></tr></thead>
-      <tbody>${cuerpo}</tbody>${filas.totalCosto!=null?`<tfoot><tr><td ${td} colspan="5"><b>Total costo consumido</b></td><td ${td} align="right"><b>${filas.totalCosto}</b></td><td ${td} colspan="2"></td></tr></tfoot>`:""}</table>
+      <th ${th}>Bodega</th><th ${th}>Estado</th><th ${th}>Conteo (responsable)</th><th ${th}>PAX</th><th ${th}>Traslados registrados</th><th ${th}>Gasto del día</th><th ${th}>Aprobación</th><th ${th}>Notas</th></tr></thead>
+      <tbody>${cuerpo}</tbody>${filas.totalCosto!=null?`<tfoot><tr><td ${td} colspan="5"><b>Total gasto del día</b></td><td ${td} align="right"><b>${filas.totalCosto}</b></td><td ${td} colspan="2"></td></tr></tfoot>`:""}</table>
     <p style="color:#8a8578;font-size:12px;margin-top:14px"><b>Traslados registrados:</b> "Sí" = la bodega tiene traslados de Zeus cargados ese día · "No" = ese día se cargaron traslados de Zeus, pero esta bodega no tuvo ninguno · "No fueron cargados" = ese día no se cargó ningún traslado de Zeus en la app.<br>Reporte automático de Inventario A&amp;B.</p></div>`;
 }
 /* ===== Correos automáticos =====
@@ -1225,7 +1246,7 @@ async function invEnviarReporteDiario(prueba){
       responsable: r.responsable||"—",
       pax: `${invTotalPax(r)}${quienesPax?` — ${quienesPax}`:""}`,
       traslados: invEstadoTraslados(r, regs),
-      costo: (()=>{ const c=invCostosDia(r); totalCosto+=c.consumo; return invDinero(c.consumo)+(c.sinCosto.length?` (${c.sinCosto.length} sin costo)`:""); })(),
+      costo: (()=>{ const c=invCostosDia(r); totalCosto+=c.consumo+c.merma; return invDinero(c.consumo+c.merma)+(c.sinCosto.length?` (${c.sinCosto.length} sin costo)`:""); })(),
       aprobado: r.aprobado===true ? `${r.aprobadoPor||"—"}` : (r.cerrado ? "Pendiente" : "—"),
       notas: [r.notaLimite||"", (r.ajustes||[]).length?`Ajustado por ${[...new Set(r.ajustes.map(a=>a.por))].join(", ")}`:"",
               invDesviacionesDe(r).length?`${invDesviacionesDe(r).length} producto(s) con consumo negativo`:""].filter(Boolean).join(" · ")||"—"};
@@ -1285,56 +1306,68 @@ async function invExcelDia(fecha, datos){
   const fechaTxt = (()=>{ try{ return new Date(fecha+"T12:00:00").toLocaleDateString("es-EC",{weekday:"long",day:"numeric",month:"long",year:"numeric"}); }catch(e){ return fecha; } })();
   const sub = `Inventario del ${fechaTxt} · Costos: costo promedio de Zeus · Generado ${fmtDT(new Date().toISOString())}`;
   // ---- Hoja Resumen ----
-  const colsR=[{h:"Bodega",w:30},{h:"Estado",w:22},{h:"Responsable del conteo",w:24},{h:"PAX",w:8,fmt:"#,##0",al:"center"},
-    {h:"Costo consumido",w:16,fmt:XL.dinero},{h:"Costo por PAX",w:13,fmt:XL.dinero},{h:"Costo merma",w:13,fmt:XL.dinero},
+  const colsR=[{h:"Bodega",w:30},{h:"Estado",w:22},{h:"Responsable del conteo",w:24},{h:"PAX / Tickets",w:10,fmt:"#,##0",al:"center"},
+    {h:"Gasto del día",w:16,fmt:XL.dinero},{h:"Costo por PAX / Ticket promedio",w:16,fmt:XL.dinero},
     {h:"Consumos negativos",w:12,fmt:"0;-0;\"—\"",al:"center"},{h:"Productos sin costo",w:12,fmt:"0;-0;\"—\"",al:"center"}];
   const wsR = wb.addWorksheet("Resumen",{views:[{state:"frozen",ySplit:4,showGridLines:false}],properties:{tabColor:{argb:XL.azul}},pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
   xlTitulo(wsR, "Inventario A&B — Resumen de costos", sub, colsR.length);
   xlEncabezado(wsR, 4, colsR);
-  let f=5, tc=0, tm=0, tp=0, tn=0, ts=0;
-  for(const {b,r,c} of datos){
-    if(!r){ xlFila(wsR,f++,colsR,[b.nombre,"Sin registro","",null,null,null,null,null,null],{color:"FF8A8578"}); continue; }
-    const neg=invDesviacionesDe(r).length; tc+=c.consumo; tm+=c.merma; tp+=c.pax; tn+=neg; ts+=c.sinCosto.length;
+  const RC = invResumenCostos(datos);
+  let f=5;
+  const seccion = (titulo) => { wsR.mergeCells(f,1,f,colsR.length); const c=wsR.getCell(f,1); c.value=titulo;
+    c.font={bold:true,size:11,color:{argb:XL.azul}}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.azulClaro}}; c.alignment={indent:1,vertical:"middle"}; wsR.getRow(f).height=20; f++; };
+  const filaR = (x) => { const {b,r,c}=x;
+    if(!r){ xlFila(wsR,f++,colsR,[b.nombre,"Sin registro","",null,null,null,null,null],{color:"FF8A8578"}); return; }
+    const neg=invDesviacionesDe(r).length;
     const estado=r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar";
-    const row=xlFila(wsR,f++,colsR,[b.nombre,estado,r.responsable||"",c.pax,c.consumo,c.pax?c.consumo/c.pax:null,c.merma,neg,c.sinCosto.length]);
+    const row=xlFila(wsR,f++,colsR,[b.nombre,estado,r.responsable||"",x.pax,x.gasto,x.cpp,neg,c.sinCosto.length]);
     row.getCell(1).font={bold:true};
-    const e=row.getCell(2); e.font={bold:true,color:{argb: r.cerrado&&r.aprobado!==false?XL.verdeTxt:XL.amarilloTxt}};
-    if(neg){ const x=row.getCell(8); x.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.rojo}}; x.font={bold:true,color:{argb:XL.rojoTxt}}; }
-    if(c.sinCosto.length){ const x=row.getCell(9); x.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.amarillo}}; x.font={bold:true,color:{argb:XL.amarilloTxt}}; }
-  }
-  const tot=xlFila(wsR,f,colsR,["TOTAL","","",tp,tc,tp?tc/tp:null,tm,tn,ts],{bg:XL.azulClaro,bold:true});
-  tot.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); tot.height=22;
-  f+=2;
-  const leyenda=[["Cómo leer este archivo:",null],["• Costo consumido = consumo del día × costo unitario de Zeus.",null],
-    ["• En cada hoja de bodega, las filas en rojo son productos con CONSUMO NEGATIVO (la cantidad final es mayor que lo disponible): revisar conteo o traslados.",XL.rojo],
-    ["• Las filas en amarillo son productos con movimiento pero sin costo cargado en la app.",XL.amarillo]];
+    row.getCell(2).font={bold:true,color:{argb: r.cerrado&&r.aprobado!==false?XL.verdeTxt:XL.amarilloTxt}};
+    if(!x.pax){ const x4=row.getCell(4); x4.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.amarillo}}; x4.font={bold:true,color:{argb:XL.amarilloTxt}}; }
+    if(neg){ const x7=row.getCell(7); x7.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.rojo}}; x7.font={bold:true,color:{argb:XL.rojoTxt}}; }
+    if(c.sinCosto.length){ const x8=row.getCell(8); x8.fill={type:"pattern",pattern:"solid",fgColor:{argb:XL.amarillo}}; x8.font={bold:true,color:{argb:XL.amarilloTxt}}; } };
+  const totalR = (etq, gasto, cpp) => { const t=xlFila(wsR,f++,colsR,[etq,"","",null,gasto,cpp,null,null],{bg:XL.azulClaro,bold:true});
+    t.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22; };
+  seccion("HOTEL — costo por persona atendida (PAX)");
+  RC.hotel.forEach(filaR);
+  totalR("TOTAL HOTEL (costo por PAX real = suma de las bodegas)", RC.totHotel.gasto, RC.totHotel.cpp);
+  f++;
+  seccion("LA ALMEJA PLAYERA — ticket promedio (aparte, no se suma al hotel)");
+  RC.rest.forEach(filaR);
+  totalR("TOTAL LA ALMEJA PLAYERA", RC.totRest.gasto, null);
+  f+=1;
+  const leyenda=[["Cómo leer este archivo:",null],
+    ["• Gasto del día = (consumo + merma) × costo unitario de Zeus. La merma no se descuenta: es gasto del día.",null],
+    ["• Hotel: cada bodega se divide para sus PAX (personas atendidas; Chiringuito solo almuerzo y cena). El costo por PAX real es la suma de los costos por PAX de cada bodega.",null],
+    ["• La Almeja Playera se mide por ticket promedio (gasto / tickets) y va aparte.",null],
+    ["• En cada hoja de bodega, las filas en rojo son productos con CONSUMO NEGATIVO (revisar conteo o traslados); en amarillo, productos con movimiento sin costo cargado.",XL.rojo]];
   for(const [t,bg] of leyenda){ wsR.mergeCells(f,1,f,colsR.length); const c=wsR.getCell(f,1); c.value=t; c.font={size:10,bold:t.endsWith(":"),color:{argb:"FF3A3A3A"}};
-    if(bg) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:bg}}; c.alignment={wrapText:true,indent:1}; f++; }
+    if(bg) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:bg}}; c.alignment={wrapText:true,indent:1}; wsR.getRow(f).height=t.length>110?28:16; f++; }
   // ---- Una hoja por bodega ----
   const cols=[{h:"Código",w:10,al:"center"},{h:"Producto",w:38,wrap:true},{h:"Unidad",w:10,al:"center"},
     {h:"Inicial",w:10,fmt:XL.cant},{h:"Traslados (+)",w:11,fmt:XL.cant},{h:"Traslados (−)",w:11,fmt:XL.cant},{h:"Merma",w:9,fmt:XL.cant},
-    {h:"Final",w:10,fmt:XL.cant},{h:"Consumo",w:10,fmt:XL.cant},{h:"Costo unitario",w:13,fmt:XL.cu},{h:"Costo consumo",w:14,fmt:XL.dinero},
-    {h:"Costo merma",w:12,fmt:XL.dinero},{h:"Observación",w:22,wrap:true}];
+    {h:"Final",w:10,fmt:XL.cant},{h:"Consumo",w:10,fmt:XL.cant},{h:"Costo unitario",w:13,fmt:XL.cu},{h:"Gasto del día (consumo + merma)",w:16,fmt:XL.dinero},
+    {h:"Observación",w:22,wrap:true}];
   const usados=new Set(["Resumen"]);
   for(const {b,r,c} of datos){ if(!r) continue;
     let nom=b.nombre.replace(/[\\/?*\[\]:]/g," ").slice(0,31); while(usados.has(nom)) nom=nom.slice(0,28)+"_"+usados.size; usados.add(nom);
     const ws=wb.addWorksheet(nom,{views:[{state:"frozen",ySplit:4,xSplit:2,showGridLines:false}],pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
-    xlTitulo(ws, `${b.nombre} — ${fecha}`, `Responsable: ${r.responsable||"—"} · PAX: ${c.pax} · ${r.cerrado?(r.aprobado===false?"Cerrado, por aprobar":"Cerrado y aprobado"):"Sin cerrar"} · Costo consumido: ${invDinero(c.consumo)}`, cols.length);
+    xlTitulo(ws, `${b.nombre} — ${fecha}`, `Responsable: ${r.responsable||"—"} · PAX: ${c.pax} · ${r.cerrado?(r.aprobado===false?"Cerrado, por aprobar":"Cerrado y aprobado"):"Sin cerrar"} · Gasto del día: ${invDinero(c.consumo+c.merma)}`, cols.length);
     xlEncabezado(ws, 4, cols);
-    let i=5, sc=0, sm=0;
+    let i=5, sc=0;
     for(const it of invOrdenCatalogo(r.bodega, r.items||[])){
       const cons=invConsumoVista(it), cu=invCostoUnit(it), fin=invFinalVista(it), me=+it.merma||0;
       const neg = cons!==null && Math.round(cons*100)/100 < 0;
       const sinC = cu===null && (cons||me);
-      const cc = cu===null||cons===null?null:cons*cu, cm = cu===null?null:me*cu; if(cc) sc+=cc; if(cm) sm+=cm;
-      const row=xlFila(ws,i,cols,[it.codigo||"",it.nombre,invUnidad(it,r.bodega)||"",+it.inicial||0,+it.tp||0,+it.tn||0,me,fin,cons,cu,cc,cm,
+      const cc = cu===null ? null : ((cons||0)+me)*cu; if(cc) sc+=cc;
+      const row=xlFila(ws,i,cols,[it.codigo||"",it.nombre,invUnidad(it,r.bodega)||"",+it.inicial||0,+it.tp||0,+it.tn||0,me,fin,cons,cu,cc,
         neg?"CONSUMO NEGATIVO":(sinC?"Sin costo en la app":"")], neg?{bg:XL.rojo,color:XL.rojoTxt}:(sinC?{bg:XL.amarillo,color:XL.amarilloTxt}:null));
       row.getCell(9).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}}; row.getCell(11).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}};
-      if(neg||sinC) row.getCell(13).font={bold:true,color:{argb:neg?XL.rojoTxt:XL.amarilloTxt}};
+      if(neg||sinC) row.getCell(12).font={bold:true,color:{argb:neg?XL.rojoTxt:XL.amarilloTxt}};
       i++;
     }
     if(i>5) ws.autoFilter={from:{row:4,column:1},to:{row:i-1,column:cols.length}};
-    const t=xlFila(ws,i,cols,["","TOTAL","","","","","","","","",sc,sm,""],{bg:XL.azulClaro,bold:true});
+    const t=xlFila(ws,i,cols,["","TOTAL","","","","","","","","",sc,""],{bg:XL.azulClaro,bold:true});
     t.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22;
   }
   const buf = await wb.xlsx.writeBuffer();
@@ -1344,21 +1377,30 @@ async function invExcelDia(fecha, datos){
 function invEmailCostos(fecha, datos){
   const td='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px"', tdr='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;text-align:right"';
   const th='style="text-align:left;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"', thr='style="text-align:right;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"';
-  let tc=0,tm=0,tp=0;
-  const filas = datos.map(({b,r,c})=>{ if(!r) return `<tr><td ${td}><b>${b.nombre}</b></td><td ${td}>Sin registro</td><td ${tdr}>—</td><td ${tdr}>—</td><td ${tdr}>—</td><td ${tdr}>—</td></tr>`;
-    tc+=c.consumo; tm+=c.merma; tp+=c.pax; const n=invDesviacionesDe(r).length;
+  const tf='style="padding:7px 8px;border-top:2px solid #2a6f77;background:#e6f2f3;font-size:13px"', tfr='style="padding:7px 8px;border-top:2px solid #2a6f77;background:#e6f2f3;font-size:13px;text-align:right"';
+  const R = invResumenCostos(datos);
+  const fila = (x, etiqPax) => { const {b,r,c}=x;
+    if(!r) return `<tr><td ${td}><b>${b.nombre}</b></td><td ${td}>Sin registro</td><td ${tdr}>—</td><td ${tdr}>—</td><td ${tdr}>—</td></tr>`;
+    const n=invDesviacionesDe(r).length;
     return `<tr><td ${td}><b>${b.nombre}</b>${n?` <span style="background:#fde2e1;color:#b3261e;border-radius:8px;padding:1px 6px;font-size:11px">${n} negativo(s)</span>`:""}${c.sinCosto.length?` <span style="background:#fff3d6;color:#8a6512;border-radius:8px;padding:1px 6px;font-size:11px">${c.sinCosto.length} sin costo</span>`:""}</td>
       <td ${td}>${r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar"}<br><span style="color:#8a8578;font-size:12px">${r.responsable||""}</span></td>
-      <td ${tdr}>${c.pax}</td><td ${tdr}><b>${invDinero(c.consumo)}</b></td><td ${tdr}>${c.pax?invDinero(c.consumo/c.pax):"—"}</td><td ${tdr}>${invDinero(c.merma)}</td></tr>`; }).join("");
+      <td ${tdr}>${x.pax||`<span style="color:#b3261e">0</span>`}</td><td ${tdr}><b>${invDinero(x.gasto)}</b></td><td ${tdr}>${x.cpp!==null?invDinero(x.cpp):`<span style="color:#8a8578">sin ${etiqPax}</span>`}</td></tr>`; };
   const negs = datos.filter(x=>x.r).map(x=>({b:x.b,n:invDesviacionesDe(x.r)})).filter(x=>x.n.length);
   const negHtml = negs.length ? negs.map(x=>`<p style="margin:10px 0 4px"><b>${x.b.nombre}</b></p>`+x.n.map(d=>`<div style="background:#fde2e1;color:#b3261e;border-left:3px solid #b3261e;padding:5px 8px;margin:3px 0;font-size:13px"><b>${d.nombre}</b> (#${d.codigo}): ${d.detalle}</div>`).join("")).join("")
     : `<p style="color:#2f6b4f">Ningún producto quedó con consumo negativo.</p>`;
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a">
     <p>Costo de los inventarios de A&amp;B del día <b>${fecha}</b>.</p>
-    <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>PAX</th><th ${thr}>Costo consumido</th><th ${thr}>Costo / PAX</th><th ${thr}>Merma</th></tr></thead>
-    <tbody>${filas}</tbody><tfoot><tr><td ${td}><b>Total</b></td><td ${td}></td><td ${tdr}><b>${tp}</b></td><td ${tdr}><b>${invDinero(tc)}</b></td><td ${tdr}>${tp?invDinero(tc/tp):"—"}</td><td ${tdr}><b>${invDinero(tm)}</b></td></tr></tfoot></table>
+    <h3 style="margin:14px 0 4px;font-size:15px;color:#1f4e5f">Hotel — costo por persona atendida</h3>
+    <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>PAX</th><th ${thr}>Gasto del día</th><th ${thr}>Costo por PAX</th></tr></thead>
+    <tbody>${R.hotel.map(x=>fila(x,"PAX")).join("")}</tbody>
+    <tfoot><tr><td ${tf}><b>Total hotel</b></td><td ${tf}></td><td ${tfr}></td><td ${tfr}><b>${invDinero(R.totHotel.gasto)}</b></td><td ${tfr}><b>${invDinero(R.totHotel.cpp)}</b></td></tr></tfoot></table>
+    <p style="color:#5c6b6e;font-size:12px;margin:4px 0 0">Costo por PAX real del día = suma de los costos por PAX de cada bodega (comida + snacks + bebidas que consume una persona).</p>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">La Almeja Playera — ticket promedio (aparte, no se suma al hotel)</h3>
+    <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>Tickets</th><th ${thr}>Gasto del día</th><th ${thr}>Ticket promedio</th></tr></thead>
+    <tbody>${R.rest.map(x=>fila(x,"tickets")).join("")}</tbody>
+    <tfoot><tr><td ${tf}><b>Total La Almeja Playera</b></td><td ${tf}></td><td ${tfr}></td><td ${tfr}><b>${invDinero(R.totRest.gasto)}</b></td><td ${tfr}></td></tr></tfoot></table>
     <h3 style="margin:18px 0 4px;font-size:15px">Desviaciones del día (consumo negativo)</h3>${negHtml}
-    <p style="color:#8a8578;font-size:12px;margin-top:14px">Adjunto: detalle de inventarios por bodega con sus costos (Excel). Costo = consumo × costo unitario de Zeus. Reporte automático de Inventario A&amp;B.</p></div>`;
+    <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto del día = (consumo + merma) × costo unitario de Zeus. PAX = personas atendidas registradas por el personal de servicio (Chiringuito: solo almuerzo y cena). Adjunto: detalle de inventarios por bodega con sus costos (Excel). Reporte automático de Inventario A&amp;B.</p></div>`;
 }
 async function invEnviarReporteCostos(prueba){
   if(MODE!=="graph" || (!prueba && invHoraMinECActual() < 10*60+30)) return {enviado:false};
@@ -2200,7 +2242,7 @@ function InventarioServicio({user,toast}){
         <Icon name="alert" size={15}/> Esto es PAX del <b>{rec.fecha}</b>, que quedó sin cerrar. Hay hasta las <b>10:00am de hoy</b> para registrarlo — pasada esa hora ya no se podrá editar.</div>}
     <div className="card" style={{padding:"12px 14px"}}>
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
-      <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega":"Adultos y niños atendidos hoy en esta bodega"}{invEsBebidas(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
+      <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega":"Adultos y niños atendidos hoy en esta bodega"}{invSoloAlmuerzoCena(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
       {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
       {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
         <div style={{fontWeight:700,flex:"1 1 auto"}}>{invNombreServicio(bodegaObj, s.nombre)}</div>
@@ -2732,7 +2774,7 @@ function InventarioCostos({user,toast}){
       setDatos((INV_CFG.bodegas||[]).map(b=>{ const r=all.find(x=>x.bodega===b.codigo); return {b, r, c: r?invCostosDia(r):null}; }));
     }catch(e){ toast("No se pudo cargar: "+(e.message||e)); setDatos([]); } }
   useEffect(()=>{ cargar(fecha); },[fecha]);
-  const tot = (datos||[]).reduce((a,x)=>{ if(x.c){ a.c+=x.c.consumo; a.m+=x.c.merma; a.p+=x.c.pax; a.s+=x.c.sinCosto.length; } return a; },{c:0,m:0,p:0,s:0});
+  const tot = (datos||[]).reduce((a,x)=>{ if(x.c){ a.s+=x.c.sinCosto.length; } return a; },{s:0});
   const th={textAlign:"right",padding:"6px 8px",fontSize:12,color:"var(--muted)",fontWeight:700,borderBottom:"2px solid var(--line)"};
   const td={textAlign:"right",padding:"7px 8px",borderBottom:"1px solid var(--line)",fontSize:13};
   return <div className="inv-print">
@@ -2746,32 +2788,39 @@ function InventarioCostos({user,toast}){
     <h3 style={{marginTop:0}}>Resumen del {fecha}: cierre, costos y consumos negativos</h3>
     <p className="hint" style={{marginTop:-4,marginBottom:10}}>Toca una bodega para ver el costo por producto, o "Ver inventario" para el detalle completo del día (imprimible).</p>
     {datos===null && <div className="empty">Cargando…</div>}
-    {datos && <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-      <thead><tr><th style={{...th,textAlign:"left"}}>Bodega</th><th style={th}>Estado</th><th style={th}>PAX</th><th style={th}>Costo consumido</th><th style={th}>Costo / PAX</th><th style={th}>Merma</th></tr></thead>
-      <tbody>{datos.map(({b,r,c})=>{ const open=abierta===b.codigo;
+    {datos && (()=>{ const RC=invResumenCostos(datos);
+      const filas=(arr)=>arr.map(x=>{ const {b,r,c}=x; const open=abierta===b.codigo;
         return [<tr key={b.codigo} style={{cursor:r?"pointer":"default"}} onClick={()=>r&&setAbierta(open?null:b.codigo)}>
           <td style={{...td,textAlign:"left",fontWeight:700}}>{r?(open?"▾ ":"▸ "):""}{b.nombre}{r && <span className="inv-noprint" style={{marginLeft:8,color:"var(--ocean-d)",fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={e=>{e.stopPropagation(); setVer(r);}}>Ver inventario</span>}{c&&c.sinCosto.length?<span className="pill" style={{marginLeft:6,background:"#fff3d6",color:"#8a6512",fontSize:11}}>{c.sinCosto.length} sin costo</span>:null}{r&&invDesviacionesDe(r).length?<span className="pill" style={{marginLeft:6,background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg,fontSize:11}}>{invDesviacionesDe(r).length} negativo(s)</span>:null}</td>
           <td style={td}>{!r?"Sin registro":r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar"}{r&&r.responsable?<div className="meta">{r.responsable}</div>:null}</td>
-          <td style={td}>{c?c.pax:"—"}</td>
-          <td style={{...td,fontWeight:700}}>{c?invDinero(c.consumo):"—"}</td>
-          <td style={td}>{c&&c.pax?invDinero(c.consumo/c.pax):"—"}</td>
-          <td style={td}>{c?invDinero(c.merma):"—"}</td></tr>,
-          open && c && <tr key={b.codigo+"_d"}><td colSpan={6} style={{padding:"4px 0 12px"}}>
+          <td style={td}>{c?x.pax:"—"}</td>
+          <td style={{...td,fontWeight:700}}>{c?invDinero(x.gasto):"—"}</td>
+          <td style={td}>{x.cpp!==null?invDinero(x.cpp):"—"}</td></tr>,
+          open && c && <tr key={b.codigo+"_d"}><td colSpan={5} style={{padding:"4px 0 12px"}}>
             {!c.lineas.length && <div className="hint" style={{padding:8}}>Sin consumo ni merma registrados ese día.</div>}
             {!!c.lineas.length && <table style={{width:"100%",borderCollapse:"collapse",background:"#faf8f3"}}>
-              <thead><tr><th style={{...th,textAlign:"left"}}>Producto</th><th style={th}>Consumo</th><th style={th}>Costo unit.</th><th style={th}>Costo consumo</th><th style={th}>Merma</th><th style={th}>Costo merma</th></tr></thead>
+              <thead><tr><th style={{...th,textAlign:"left"}}>Producto</th><th style={th}>Consumo</th><th style={th}>Merma</th><th style={th}>Costo unit.</th><th style={th}>Gasto del día</th></tr></thead>
               <tbody>{c.lineas.map(l=>{ const neg=l.cant<-0.001; const st=neg?{background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg}:{};
                 return <tr key={l.it.codigo+"|"+l.it.nombre} style={st}>
                   <td style={{...td,textAlign:"left"}}>{l.it.nombre} <span className="meta">#{l.it.codigo||"—"}</span></td>
                   <td style={td}>{invFmt(l.cant)}</td>
-                  <td style={td}>{l.cu===null?<span style={{color:"#8a6512"}}>sin costo</span>:invDinero(l.cu)}</td>
-                  <td style={{...td,fontWeight:700}}>{invDinero(l.total)}</td>
                   <td style={td}>{l.merma?invFmt(l.merma):"—"}</td>
-                  <td style={td}>{l.merma?invDinero(l.totalMerma):"—"}</td></tr>; })}</tbody></table>}
-          </td></tr>]; })}</tbody>
-      <tfoot><tr><td style={{...td,textAlign:"left",fontWeight:800}}>Total</td><td style={td}></td><td style={td}>{tot.p}</td>
-        <td style={{...td,fontWeight:800}}>{invDinero(tot.c)}</td><td style={td}>{tot.p?invDinero(tot.c/tot.p):"—"}</td><td style={{...td,fontWeight:700}}>{invDinero(tot.m)}</td></tr></tfoot>
-    </table></div>}
+                  <td style={td}>{l.cu===null?<span style={{color:"#8a6512"}}>sin costo</span>:invDinero(l.cu)}</td>
+                  <td style={{...td,fontWeight:700}}>{l.cu===null?"—":invDinero((l.total||0)+(l.totalMerma||0))}</td></tr>; })}</tbody></table>}
+          </td></tr>]; });
+      const tabla=(titulo, arr, etqPax, etqProm, tot, totProm)=><div style={{overflowX:"auto",marginBottom:14}}>
+        <div style={{fontWeight:800,color:"var(--ocean-d)",margin:"6px 0 4px"}}>{titulo}</div>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr><th style={{...th,textAlign:"left"}}>Bodega</th><th style={th}>Estado</th><th style={th}>{etqPax}</th><th style={th}>Gasto del día</th><th style={th}>{etqProm}</th></tr></thead>
+          <tbody>{filas(arr)}</tbody>
+          <tfoot><tr><td style={{...td,textAlign:"left",fontWeight:800}}>Total</td><td style={td}></td><td style={td}></td>
+            <td style={{...td,fontWeight:800}}>{invDinero(tot)}</td><td style={{...td,fontWeight:800}}>{totProm===null?"":invDinero(totProm)}</td></tr></tfoot>
+        </table></div>;
+      return <div>
+        {tabla("Hotel — costo por persona atendida", RC.hotel, "PAX", "Costo por PAX", RC.totHotel.gasto, RC.totHotel.cpp)}
+        <div className="hint" style={{marginTop:-8,marginBottom:12}}>Costo por PAX real del día = suma de los costos por PAX de cada bodega (comida + snacks + bebidas).</div>
+        {tabla("La Almeja Playera — ticket promedio (aparte)", RC.rest, "Tickets", "Ticket promedio", RC.totRest.gasto, null)}
+      </div>; })()}
     {datos && (()=>{ const negs=datos.filter(x=>x.r).map(x=>({b:x.b, n:invDesviacionesDe(x.r)})).filter(x=>x.n.length);
       return <div style={{marginTop:14}}><h3 style={{marginBottom:6}}>Consumos negativos del {fecha}</h3>
         {!negs.length ? <div className="hint">Ningún producto quedó con consumo negativo este día.</div>
@@ -2781,7 +2830,7 @@ function InventarioCostos({user,toast}){
     {ver && <Modal title={`${ver.bodegaNombre} · ${ver.fecha}`} onClose={()=>setVer(null)} wide>
       <InventarioDetalle r={ver} user={user} toast={toast} onEliminado={()=>{setVer(null);cargar(fecha);}}/></Modal>}
     {datos && tot.s>0 && <div className="hint" style={{marginTop:10,color:"#8a6512"}}>Hay {tot.s} producto(s) con movimiento y sin costo: no suman al total. Complétalos en Configurar → Costos.</div>}
-    <div className="hint" style={{marginTop:10}}>Costo consumido = consumo del día × costo unitario (columna "Costo" del listado de Zeus, o el costo puesto a mano). Los productos en <b style={{color:INV_COLOR_NEG.fg}}>rojo</b> tienen consumo negativo y restan del total hasta que se corrijan. Los días sin cerrar se calculan con lo registrado hasta ahora.</div>
+    <div className="hint" style={{marginTop:10}}>Gasto del día = (consumo + merma) × costo unitario (columna "Costo" del listado de Zeus, o el costo puesto a mano). Los productos en <b style={{color:INV_COLOR_NEG.fg}}>rojo</b> tienen consumo negativo y restan del total hasta que se corrijan. Los días sin cerrar se calculan con lo registrado hasta ahora.</div>
   </div>;
 }
 /* Configurar → Costos: fecha del listado vigente, subir un nuevo listado de
@@ -3112,7 +3161,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-13d";
+const APP_BUILD = "2026-10-13e";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
