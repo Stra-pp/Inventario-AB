@@ -1162,17 +1162,26 @@ async function invEnviarAlertaDesviaciones(rec, desviaciones){
    repetido desde dos dispositivos, primero se marca el día como enviado en la
    configuración (con el control de versión de invCfgSave) y solo quien logra
    guardar esa marca envía el correo. */
+/* ¿Se registraron traslados de Zeus en la bodega ese día?
+   "Sí"                 → la bodega tiene traslados aplicados (o productos con traslados +/−).
+   "No"                 → ese día sí se cargaron traslados de Zeus (en otras bodegas), pero a esta no le tocó ninguno.
+   "No fueron cargados" → ese día no se cargó ningún traslado de Zeus en ninguna bodega. */
+function invTieneTraslados(r){ return !!r && ((Array.isArray(r.trasladosAplicados) && r.trasladosAplicados.length>0) || (r.items||[]).some(it=>(+it.tp||0)!==0 || (+it.tn||0)!==0)); }
+function invEstadoTraslados(r, regsDelDia){
+  if(invTieneTraslados(r)) return "Sí";
+  return (regsDelDia||[]).some(invTieneTraslados) ? "No" : "No fueron cargados";
+}
 function invEmailReporteDiario(fecha, filas){
   const td = 'style="padding:5px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;vertical-align:top"';
   const cuerpo = filas.map(f=>`<tr><td ${td}><b>${f.bodega}</b></td><td ${td}>${f.estado}</td><td ${td}>${f.responsable}</td>
-    <td ${td}>${f.pax}</td><td ${td} align="right">${f.costo||"—"}</td><td ${td}>${f.aprobado}</td><td ${td}>${f.notas}</td></tr>`).join("");
+    <td ${td}>${f.pax}</td><td ${td}>${f.traslados==="Sí"?`<span style="color:#2f6b4f;font-weight:bold">Sí</span>`:f.traslados==="No"?"No":f.traslados?`<span style="background:#fff3d6;color:#8a6512;border-radius:8px;padding:1px 6px">${f.traslados}</span>`:"—"}</td><td ${td} align="right">${f.costo||"—"}</td><td ${td}>${f.aprobado}</td><td ${td}>${f.notas}</td></tr>`).join("");
   const th = 'style="text-align:left;padding:5px 8px;border-bottom:2px solid #2a6f77;font-size:13px"';
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a">
     <p>Resumen del inventario de A&amp;B del día <b>${fecha}</b> (cierre hasta las 10:00am de hoy).</p>
     <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr>
-      <th ${th}>Bodega</th><th ${th}>Estado</th><th ${th}>Conteo (responsable)</th><th ${th}>PAX</th><th ${th}>Costo consumido</th><th ${th}>Aprobación</th><th ${th}>Notas</th></tr></thead>
-      <tbody>${cuerpo}</tbody>${filas.totalCosto!=null?`<tfoot><tr><td ${td} colspan="4"><b>Total costo consumido</b></td><td ${td} align="right"><b>${filas.totalCosto}</b></td><td ${td} colspan="2"></td></tr></tfoot>`:""}</table>
-    <p style="color:#8a8578;font-size:12px;margin-top:14px">Reporte automático de Inventario A&amp;B.</p></div>`;
+      <th ${th}>Bodega</th><th ${th}>Estado</th><th ${th}>Conteo (responsable)</th><th ${th}>PAX</th><th ${th}>Traslados registrados</th><th ${th}>Costo consumido</th><th ${th}>Aprobación</th><th ${th}>Notas</th></tr></thead>
+      <tbody>${cuerpo}</tbody>${filas.totalCosto!=null?`<tfoot><tr><td ${td} colspan="5"><b>Total costo consumido</b></td><td ${td} align="right"><b>${filas.totalCosto}</b></td><td ${td} colspan="2"></td></tr></tfoot>`:""}</table>
+    <p style="color:#8a8578;font-size:12px;margin-top:14px"><b>Traslados registrados:</b> "Sí" = la bodega tiene traslados de Zeus cargados ese día · "No" = ese día se cargaron traslados de Zeus, pero esta bodega no tuvo ninguno · "No fueron cargados" = ese día no se cargó ningún traslado de Zeus en la app.<br>Reporte automático de Inventario A&amp;B.</p></div>`;
 }
 /* ===== Correos automáticos =====
    10:00 → "Resumen de gestión de inventarios" (cierres, responsables, PAX,
@@ -1209,12 +1218,13 @@ async function invEnviarReporteDiario(prueba){
   let totalCosto = 0;
   const filas = (INV_CFG.bodegas||[]).map(b=>{
     const r = regs.find(x=>x.bodega===b.codigo);
-    if(!r) return {bodega:b.nombre, estado:"Sin registro", responsable:"—", pax:"—", aprobado:"—", notas:"No se tomó inventario ese día."};
+    if(!r) return {bodega:b.nombre, estado:"Sin registro", responsable:"—", pax:"—", traslados:"—", aprobado:"—", notas:"No se tomó inventario ese día."};
     const quienesPax = [...new Set((r.servicios||[]).map(s=>s.registradoPor).filter(Boolean))].join(", ");
     return {bodega:b.nombre,
       estado: r.cerrado ? `Cerrado por ${r.cerradoPor||"—"} (${fmtDT(r.cerradoEn)})` : "Sin cerrar",
       responsable: r.responsable||"—",
       pax: `${invTotalPax(r)}${quienesPax?` — ${quienesPax}`:""}`,
+      traslados: invEstadoTraslados(r, regs),
       costo: (()=>{ const c=invCostosDia(r); totalCosto+=c.consumo; return invDinero(c.consumo)+(c.sinCosto.length?` (${c.sinCosto.length} sin costo)`:""); })(),
       aprobado: r.aprobado===true ? `${r.aprobadoPor||"—"}` : (r.cerrado ? "Pendiente" : "—"),
       notas: [r.notaLimite||"", (r.ajustes||[]).length?`Ajustado por ${[...new Set(r.ajustes.map(a=>a.por))].join(", ")}`:"",
@@ -3102,7 +3112,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-13c";
+const APP_BUILD = "2026-10-13d";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
