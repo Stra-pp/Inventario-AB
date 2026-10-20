@@ -1081,18 +1081,30 @@ function invCostoUnit(it){
   if(INV_COSTOS_BASE[k]!=null) return +INV_COSTOS_BASE[k];
   return null;
 }
+/* Productos de VENTA (se facturan): NO son todo incluido. Pedido de Gerencia
+   (20/10/2026): se separan del costo todo incluido y se muestran aparte como
+   "Venta (facturado)" para cuadrarlos luego con lo facturado. Se puede
+   ampliar desde Configurar (INV_CFG.costos.venta = lista de códigos). */
+const INV_CODIGOS_VENTA = ["201005","201034","201003","201022","201012","201035","201024","201025","201019","201018",
+  "301003","301002","301009","302025","302047","302009","302046","302024","302049","302003","302038","302076","302075",
+  "302079","320044","302039","302043","302045","302074","302005","302058","302023","302052","302051"];
+function invEsVenta(it){ const c=String((it&&it.codigo)||"").trim(); if(!c) return false;
+  const extra=(INV_CFG.costos && Array.isArray(INV_CFG.costos.venta)) ? INV_CFG.costos.venta : [];
+  return INV_CODIGOS_VENTA.includes(c) || extra.includes(c); }
 function invCostosDia(rec){
-  const lineas=[]; let consumo=0, merma=0; const sinCosto=[];
+  const lineas=[]; let consumo=0, merma=0, venta=0; const sinCosto=[];
   for(const it of ((rec&&rec.items)||[])){
     const cant = invConsumoVista(it), me = +it.merma||0;
     if(!cant && !me) continue;
     const cu = invCostoUnit(it);
-    if(cu===null){ sinCosto.push(it); lineas.push({it, cant, merma:me, cu:null, total:null, totalMerma:null}); continue; }
-    const t = cant*cu, tm = me*cu; consumo += t; merma += tm;
-    lineas.push({it, cant, merma:me, cu, total:t, totalMerma:tm});
+    const esVenta = invEsVenta(it);
+    if(cu===null){ if(!esVenta) sinCosto.push(it); lineas.push({it, cant, merma:me, cu:null, total:null, totalMerma:null, venta:esVenta}); continue; }
+    const t = cant*cu, tm = me*cu;
+    if(esVenta) venta += t+tm; else { consumo += t; merma += tm; }
+    lineas.push({it, cant, merma:me, cu, total:t, totalMerma:tm, venta:esVenta});
   }
   lineas.sort((a,b)=>(Math.abs(b.total||0))-(Math.abs(a.total||0)));
-  return {consumo, merma, lineas, sinCosto, pax: invTotalPax(rec)};
+  return {consumo, merma, venta, lineas, sinCosto, pax: invTotalPax(rec)};
 }
 /* Unidad de medida de cada producto (para que se cuente en la misma unidad que
    Zeus: KILOS, UNIDAD, LITROS…). Orden: la puesta en la lista de la bodega
@@ -1127,7 +1139,8 @@ function invResumenCostos(datos){
   const hotel = (datos||[]).filter(x=>!invEsRestaurante(x.b)).map(fila);
   const rest = (datos||[]).filter(x=>invEsRestaurante(x.b)).map(fila);
   const sum = (a,k) => a.reduce((s,x)=>s+(x[k]||0),0);
-  return {hotel, rest, totHotel:{gasto:sum(hotel,"gasto"), cpp:sum(hotel,"cpp")}, totRest:{gasto:sum(rest,"gasto"), tickets:sum(rest,"pax")}};
+  const venta = (datos||[]).filter(x=>x.c && x.c.venta).map(x=>({b:x.b, venta:x.c.venta}));
+  return {hotel, rest, venta, totVenta:venta.reduce((a,x)=>a+x.venta,0), totHotel:{gasto:sum(hotel,"gasto"), cpp:sum(hotel,"cpp")}, totRest:{gasto:sum(rest,"gasto"), tickets:sum(rest,"pax")}};
 }
 function invDinero(n){ if(n===null||n===undefined||isNaN(+n)) return "—"; const v=Math.round((+n)*100)/100; return (v<0?"-$":"$")+Math.abs(v).toFixed(2); }
 /* Desviaciones: SOLO consumo negativo (la cantidad final es mayor que lo que
@@ -1329,7 +1342,7 @@ async function invExcelDia(fecha, datos){
   const cols=[{h:"Código",w:10,al:"center"},{h:"Producto",w:38,wrap:true},{h:"Unidad",w:10,al:"center"},
     {h:"Inicial",w:10,fmt:XL.cant},{h:"Traslados (+)",w:11,fmt:XL.cant},{h:"Traslados (−)",w:11,fmt:XL.cant},{h:"Merma",w:9,fmt:XL.cant},
     {h:"Final",w:10,fmt:XL.cant},{h:"Consumo",w:10,fmt:XL.cant},{h:"Costo unitario",w:13,fmt:XL.cu},{h:"Gasto del día (consumo + merma)",w:16,fmt:XL.dinero},
-    {h:"Observación",w:22,wrap:true}];
+    {h:"Línea",w:14,al:"center"},{h:"Observación",w:22,wrap:true}];
   for(const {b,r,c} of datos){ if(!r) continue;
     const nom=hojaDe[b.codigo], rest=invEsRestaurante(b);
     const ws=wb.addWorksheet(nom,{views:[{showGridLines:false}],pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
@@ -1373,36 +1386,42 @@ async function invExcelDia(fecha, datos){
     // ---- Detalle de productos ----
     const hdr=f; const hr=ws.getRow(hdr); cols.forEach((cc,i)=>{ const e=hr.getCell(i+1); e.value=cc.h; e.font={bold:true,color:{argb:"FFFFFFFF"},size:10};
       e.fill=fill("FF2A6F77"); e.alignment={vertical:"middle",horizontal:"center",wrapText:true}; e.border={bottom:{style:"medium",color:{argb:XL.azul}}}; }); hr.height=32;
-    let i=hdr+1, gTot=0;
+    let i=hdr+1, gTot=0, vTot=0;
     for(const it of invOrdenCatalogo(r.bodega, r.items||[])){
       const cons=invConsumoVista(it), cu=invCostoUnit(it), fin=invFinalVista(it), me=+it.merma||0;
       const neg = cons!==null && Math.round(cons*100)/100 < 0;
       const sinC = cu===null && (cons||me);
-      const g = cu===null ? null : ((cons||0)+me)*cu; if(g) gTot+=g;
+      const esV = invEsVenta(it);
+      const g = cu===null ? null : ((cons||0)+me)*cu; if(g){ if(esV) vTot+=g; else gTot+=g; }
       const row=xlFila(ws,i,cols,[it.codigo||"",it.nombre,invUnidad(it,r.bodega)||"",+it.inicial||0,+it.tp||0,+it.tn||0,me,fin,
         xlF(`D${i}+E${i}-F${i}-G${i}-H${i}`, cons), cu,
-        cu===null ? null : xlF(`(I${i}+G${i})*J${i}`, g),
-        neg?"CONSUMO NEGATIVO":(sinC?"Sin costo en la app":"")], neg?{bg:XL.rojo,color:XL.rojoTxt}:(sinC?{bg:XL.amarillo,color:XL.amarilloTxt}:null));
-      row.getCell(9).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}}; row.getCell(11).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}};
-      if(neg||sinC) row.getCell(12).font={bold:true,color:{argb:neg?XL.rojoTxt:XL.amarilloTxt}};
+        cu===null ? null : xlF(`(I${i}+G${i})*J${i}`, g), esV?"Venta":"Todo incluido",
+        neg?"CONSUMO NEGATIVO":(sinC&&!esV?"Sin costo en la app":"")], neg?{bg:XL.rojo,color:XL.rojoTxt}:(esV?{bg:"FFEDE7F6",color:"FF5B3A8C"}:(sinC?{bg:XL.amarillo,color:XL.amarilloTxt}:null)));
+      row.getCell(9).font={bold:true,color:{argb:neg?XL.rojoTxt:"FF2A2A2A"}}; row.getCell(11).font={bold:true,color:{argb:neg?XL.rojoTxt:(esV?"FF5B3A8C":"FF2A2A2A")}};
+      row.getCell(12).font={bold:true,color:{argb:esV?"FF5B3A8C":"FF2F6B4F"}};
+      if(neg||sinC) row.getCell(13).font={bold:true,color:{argb:neg?XL.rojoTxt:XL.amarilloTxt}};
       i++;
     }
-    const totRow=i;
-    const t=xlFila(ws,totRow,cols,["","TOTAL GASTO DEL DÍA","","","","","","","","", xlF(i>hdr+1?`SUM(K${hdr+1}:K${i-1})`:"0", gTot),""],{bg:XL.azulClaro,bold:true});
+    const totRow=i, ult=i-1, hay=i>hdr+1;
+    const t=xlFila(ws,totRow,cols,["","TOTAL GASTO TODO INCLUIDO","","","","","","","","", xlF(hay?`SUMIF(L${hdr+1}:L${ult},"Todo incluido",K${hdr+1}:K${ult})`:"0", gTot),"",""],{bg:XL.azulClaro,bold:true});
     t.eachCell(cc=>{ cc.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22;
-    if(i>hdr+1) ws.autoFilter={from:{row:hdr,column:1},to:{row:i-1,column:cols.length}};
+    const tv=xlFila(ws,totRow+1,cols,["","TOTAL VENTA (FACTURADO) — no entra al costo todo incluido","","","","","","","","", xlF(hay?`SUMIF(L${hdr+1}:L${ult},"Venta",K${hdr+1}:K${ult})`:"0", vTot),"",""],{bg:"FFEDE7F6",color:"FF5B3A8C",bold:true});
+    tv.height=20;
+    if(hay) ws.autoFilter={from:{row:hdr,column:1},to:{row:ult,column:cols.length}};
     ws.views=[{state:"frozen",ySplit:hdr,xSplit:2,showGridLines:false}];
     // ---- Indicadores del día (a la derecha del bloque de datos) ----
     const paxN=totAd+totNi, cpp=paxN?gTot/paxN:null;
-    etiqueta(3,8,10,"Gasto del día"); valor(3,11,11,xlF(`K${totRow}`, gTot), XL.dinero, {al:"right"});
+    etiqueta(3,8,10,"Gasto todo incluido"); valor(3,11,11,xlF(`K${totRow}`, gTot), XL.dinero, {al:"right"});
+    etiqueta(6,8,10,"Venta (facturado)"); valor(6,11,11,xlF(`K${totRow+1}`, vTot), XL.dinero, {al:"right",color:"FF5B3A8C"});
     etiqueta(4,8,10, rest?"Tickets del día":"PAX del día"); valor(4,11,11,xlF(`E${paxTot}`, paxN), "#,##0", {al:"right"});
     etiqueta(5,8,10, rest?"Ticket promedio":"Costo por PAX"); valor(5,11,11,xlF(`IFERROR(K3/K4,"Sin PAX")`, cpp===null?"Sin PAX":cpp), XL.dinero, {al:"right",size:13,color:XL.azul,bg:XL.amarillo});
-    celdas[b.codigo]={hoja:nom, gasto:gTot, pax:paxN, cpp, neg:invDesviacionesDe(r).length, sinC:c.sinCosto.length};
+    celdas[b.codigo]={hoja:nom, gasto:gTot, venta:vTot, pax:paxN, cpp, neg:invDesviacionesDe(r).length, sinC:c.sinCosto.length};
   }
   // ---- Hoja Resumen (con fórmulas hacia cada hoja) ----
   const colsR=[{h:"Bodega",w:30},{h:"Estado",w:22},{h:"Responsable del conteo",w:24},{h:"PAX / Tickets",w:10,fmt:"#,##0",al:"center"},
     {h:"Gasto del día",w:16,fmt:XL.dinero},{h:"Costo por PAX / Ticket promedio",w:16,fmt:XL.dinero},
-    {h:"Consumos negativos",w:12,fmt:"0;-0;\"—\"",al:"center"},{h:"Productos sin costo",w:12,fmt:"0;-0;\"—\"",al:"center"}];
+    {h:"Consumos negativos",w:12,fmt:"0;-0;\"—\"",al:"center"},{h:"Productos sin costo",w:12,fmt:"0;-0;\"—\"",al:"center"},
+    {h:"Venta (facturado) — aparte",w:15,fmt:XL.dinero}];
   xlTitulo(wsR, "Inventario A&B — Resumen de costos", sub, colsR.length);
   xlEncabezado(wsR, 4, colsR);
   const RC = invResumenCostos(datos);
@@ -1410,12 +1429,13 @@ async function invExcelDia(fecha, datos){
   const seccion = (titulo) => { wsR.mergeCells(f,1,f,colsR.length); const c=wsR.getCell(f,1); c.value=titulo;
     c.font={bold:true,size:11,color:{argb:XL.azul}}; c.fill=fill(XL.azulClaro); c.alignment={indent:1,vertical:"middle"}; wsR.getRow(f).height=20; f++; };
   const filaR = (x) => { const {b,r}=x; const k=celdas[b.codigo];
-    if(!r||!k){ xlFila(wsR,f++,colsR,[b.nombre,"Sin registro","",null,null,null,null,null],{color:"FF8A8578"}); return null; }
+    if(!r||!k){ xlFila(wsR,f++,colsR,[b.nombre,"Sin registro","",null,null,null,null,null,null],{color:"FF8A8578"}); return null; }
     const estado=r.cerrado?(r.aprobado===false?"Cerrado · por aprobar":"Cerrado y aprobado"):"Sin cerrar";
     const h=k.hoja;
     const row=xlFila(wsR,f,colsR,[b.nombre,estado,r.responsable||"",
       xlF(xlRef(h,"K4"), k.pax), xlF(xlRef(h,"K3"), k.gasto), xlF(`IFERROR(E${f}/D${f},"")`, k.cpp===null?"":k.cpp),
-      xlF(`COUNTIF(${xlRef(h,"L:L")},"CONSUMO NEGATIVO")`, k.neg), xlF(`COUNTIF(${xlRef(h,"L:L")},"Sin costo en la app")`, k.sinC)]);
+      xlF(`COUNTIF(${xlRef(h,"M:M")},"CONSUMO NEGATIVO")`, k.neg), xlF(`COUNTIF(${xlRef(h,"M:M")},"Sin costo en la app")`, k.sinC), xlF(xlRef(h,"K6"), k.venta)]);
+    if(k.venta){ const x9=row.getCell(9); x9.font={bold:true,color:{argb:"FF5B3A8C"}}; }
     row.getCell(1).font={bold:true};
     row.getCell(2).font={bold:true,color:{argb: r.cerrado&&r.aprobado!==false?XL.verdeTxt:XL.amarilloTxt}};
     if(!k.pax){ const x4=row.getCell(4); x4.fill=fill(XL.amarillo); x4.font={bold:true,color:{argb:XL.amarilloTxt}}; }
@@ -1423,7 +1443,7 @@ async function invExcelDia(fecha, datos){
     if(k.sinC){ const x8=row.getCell(8); x8.fill=fill(XL.amarillo); x8.font={bold:true,color:{argb:XL.amarilloTxt}}; }
     return f++; };
   const totalR = (etq, f0, f1, gasto, cpp, conCpp) => { const rango=L=>f1>=f0?`SUM(${L}${f0}:${L}${f1})`:"0";
-    const t=xlFila(wsR,f++,colsR,[etq,"","",null, xlF(rango("E"),gasto), conCpp?xlF(rango("F"),cpp):null, xlF(rango("G"),null), xlF(rango("H"),null)],{bg:XL.azulClaro,bold:true});
+    const t=xlFila(wsR,f++,colsR,[etq,"","",null, xlF(rango("E"),gasto), conCpp?xlF(rango("F"),cpp):null, xlF(rango("G"),null), xlF(rango("H"),null), xlF(rango("I"),null)],{bg:XL.azulClaro,bold:true});
     t.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22; };
   seccion("HOTEL — costo por persona atendida (PAX)");
   let h0=f; RC.hotel.forEach(filaR); let h1=f-1;
@@ -1434,7 +1454,8 @@ async function invExcelDia(fecha, datos){
   totalR("TOTAL LA ALMEJA PLAYERA", r0, r1, RC.totRest.gasto, null, false);
   f+=1;
   const leyenda=[["Cómo leer este archivo:",null],
-    ["• Gasto del día = (consumo + merma) × costo unitario de Zeus. La merma no se descuenta: es gasto del día.",null],
+    ["• Gasto del día = (consumo + merma) × costo unitario de Zeus, SOLO de productos todo incluido. La merma no se descuenta: es gasto del día.",null],
+    ["• Los productos de venta (aguas y gaseosas personales, cervezas 330 ml, licores importados, vinos, cigarrillos) van aparte en la columna \"Venta (facturado)\" y en morado en cada hoja: se cuadran con lo facturado.","FFEDE7F6"],
     ["• Hotel: cada bodega se divide para sus PAX (personas atendidas; Chiringuito solo almuerzo y cena). El costo por PAX real es la suma de los costos por PAX de cada bodega.",null],
     ["• La Almeja Playera se mide por ticket promedio (gasto / tickets) y va aparte.",null],
     ["• Las cifras son fórmulas: si se corrige una cantidad en la hoja de una bodega, se recalculan su gasto, su costo por PAX y este resumen.",null],
@@ -1470,8 +1491,10 @@ function invEmailCostos(fecha, datos){
     <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>Tickets</th><th ${thr}>Gasto del día</th><th ${thr}>Ticket promedio</th></tr></thead>
     <tbody>${R.rest.map(x=>fila(x,"tickets")).join("")}</tbody>
     <tfoot><tr><td ${tf}><b>Total La Almeja Playera</b></td><td ${tf}></td><td ${tfr}></td><td ${tfr}><b>${invDinero(R.totRest.gasto)}</b></td><td ${tfr}></td></tr></tfoot></table>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">Productos de venta (facturado) — no son todo incluido</h3>
+    ${R.venta.length ? `<table style="border-collapse:collapse;width:100%;max-width:600px"><thead><tr><th ${th}>Bodega</th><th ${thr}>Costo de lo consumido</th></tr></thead><tbody>${R.venta.map(v=>`<tr><td ${td}><b>${v.b.nombre}</b></td><td ${tdr}>${invDinero(v.venta)}</td></tr>`).join("")}</tbody><tfoot><tr><td ${tf}><b>Total venta</b></td><td ${tfr}><b>${invDinero(R.totVenta)}</b></td></tr></tfoot></table><p style="color:#5c6b6e;font-size:12px;margin:4px 0 0">Aguas y gaseosas personales, cervezas de 330 ml, licores importados, vinos y cigarrillos. Se excluyen del costo todo incluido y se cuadran con lo facturado.</p>` : `<p style="color:#5c6b6e">No hubo consumo de productos de venta.</p>`}
     <h3 style="margin:18px 0 4px;font-size:15px">Desviaciones del día (consumo negativo)</h3>${negHtml}
-    <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto del día = (consumo + merma) × costo unitario de Zeus. PAX = personas atendidas registradas por el personal de servicio (Chiringuito: solo almuerzo y cena). Adjunto: detalle de inventarios por bodega con sus costos (Excel). Reporte automático de Inventario A&amp;B.</p></div>`;
+    <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto del día = (consumo + merma) × costo unitario de Zeus, solo de productos todo incluido. PAX = personas atendidas registradas por el personal de servicio (Chiringuito: solo almuerzo y cena). Adjunto: detalle de inventarios por bodega con sus costos (Excel). Reporte automático de Inventario A&amp;B.</p></div>`;
 }
 async function invEnviarReporteCostos(prueba){
   if(MODE!=="graph" || (!prueba && invHoraMinECActual() < 10*60+30)) return {enviado:false};
@@ -2873,7 +2896,7 @@ function InventarioCostos({user,toast}){
               <thead><tr><th style={{...th,textAlign:"left"}}>Producto</th><th style={th}>Consumo</th><th style={th}>Merma</th><th style={th}>Costo unit.</th><th style={th}>Gasto del día</th></tr></thead>
               <tbody>{c.lineas.map(l=>{ const neg=l.cant<-0.001; const st=neg?{background:INV_COLOR_NEG.bg,color:INV_COLOR_NEG.fg}:{};
                 return <tr key={l.it.codigo+"|"+l.it.nombre} style={st}>
-                  <td style={{...td,textAlign:"left"}}>{l.it.nombre} <span className="meta">#{l.it.codigo||"—"}</span></td>
+                  <td style={{...td,textAlign:"left"}}>{l.it.nombre} <span className="meta">#{l.it.codigo||"—"}</span>{l.venta?<span className="pill" style={{marginLeft:6,background:"#ede7f6",color:"#5b3a8c",fontSize:11}}>venta</span>:null}</td>
                   <td style={td}>{invFmt(l.cant)}</td>
                   <td style={td}>{l.merma?invFmt(l.merma):"—"}</td>
                   <td style={td}>{l.cu===null?<span style={{color:"#8a6512"}}>sin costo</span>:invDinero(l.cu)}</td>
@@ -2891,6 +2914,10 @@ function InventarioCostos({user,toast}){
         {tabla("Hotel — costo por persona atendida", RC.hotel, "PAX", "Costo por PAX", RC.totHotel.gasto, RC.totHotel.cpp)}
         <div className="hint" style={{marginTop:-8,marginBottom:12}}>Costo por PAX real del día = suma de los costos por PAX de cada bodega (comida + snacks + bebidas).</div>
         {tabla("La Almeja Playera — ticket promedio (aparte)", RC.rest, "Tickets", "Ticket promedio", RC.totRest.gasto, null)}
+        <div style={{fontWeight:800,color:"#5b3a8c",margin:"6px 0 4px"}}>Productos de venta (facturado) — aparte, no son todo incluido</div>
+        {RC.venta.length ? <div style={{marginBottom:12}}>{RC.venta.map(v=><div key={v.b.codigo} style={{display:"flex",justifyContent:"space-between",maxWidth:420,fontSize:13,padding:"3px 0",borderBottom:"1px solid var(--line)"}}><span>{v.b.nombre}</span><b style={{color:"#5b3a8c"}}>{invDinero(v.venta)}</b></div>)}
+          <div style={{display:"flex",justifyContent:"space-between",maxWidth:420,fontSize:13,padding:"4px 0",fontWeight:800}}><span>Total venta</span><span style={{color:"#5b3a8c"}}>{invDinero(RC.totVenta)}</span></div></div>
+          : <div className="hint" style={{marginBottom:12}}>No hubo consumo de productos de venta este día.</div>}
       </div>; })()}
     {datos && (()=>{ const negs=datos.filter(x=>x.r).map(x=>({b:x.b, n:invDesviacionesDe(x.r)})).filter(x=>x.n.length);
       return <div style={{marginTop:14}}><h3 style={{marginBottom:6}}>Consumos negativos del {fecha}</h3>
@@ -3232,7 +3259,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-14b";
+const APP_BUILD = "2026-10-20a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
