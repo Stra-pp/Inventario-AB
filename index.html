@@ -1015,6 +1015,7 @@ function applyInvConfig(cfg){ if(!cfg) return;
   if(cfg.accesosReporte) INV_CFG.accesosReporte=cfg.accesosReporte;
   if(cfg.accesoInventario) INV_CFG.accesoInventario=cfg.accesoInventario;
   if(cfg.permisos) INV_CFG.permisos=cfg.permisos;
+  if(cfg.reorg1025) INV_CFG.reorg1025=cfg.reorg1025;
   if(cfg.alertas) INV_CFG.alertas={...INV_CFG.alertas, ...cfg.alertas}; }
 
 function invComputeConsumo(it){ const ini=+it.inicial||0, tp=+it.tp||0, tn=+it.tn||0, me=+it.merma||0;
@@ -2780,6 +2781,95 @@ async function invAplicarCorreccion25(plan, quien){
   }catch(e){ log.push(b+': error al pasar el Inicial — '+(e.message||e)); } }
   return log;
 }
+/* ===== Reorganización de bodegas (pedido del 25/10/2026, Excel de Estrategia) =====
+   - Sunset Bar Bebidas: se agregan Arrope de mora, Legz Ice Tea limón y Whisky nacional.
+   - Plaza Paraíso: sale todo lo de bar (cervezas y licores nacionales) y entran
+     los sachets (antes en Suministros) y lo de desayuno: chocolate en polvo,
+     granola, cereal, azúcar/stevia en sobres, aromáticas, mantequilla y
+     mermelada en porción y café Sello Rojo.
+   - Bar Villamar: salen Ron nacional, Vodka nacional y Vino Gómez Aguirre.
+   - Sunset Bar Suministros: salen sachets, Sprite 300 ml y queso cheddar.
+   Al aplicar: se dejan los catálogos en ese orden, se abren/sincronizan los
+   registros de HOY de esas bodegas y el saldo que cambia de bodega se pasa
+   como Traslado (+) con nota: lo de bar de Plaza Paraíso → Sunset Bar Bebidas
+   y los sachets de Suministros → Plaza Paraíso. Se aplica una sola vez. */
+const INV_REORG_1025 = {"08":[["201005","AGUA MINERAL VIDRIO 300ML"],["201034","AGUA MINERAL 330ML NO RETORNABLE"],["201003","AGUA DASANI"],["201022","COCA COLA 300 ML VIDRIO"],["201012","GASEOSA COCACOLA LIGHT 500ML"],["201035","COCA COLA ZERO"],["201024","COLA FIORA 300 ML VIDRIO"],["201025","COLA FANTA 300 ML VIDRIO"],["201019","GASEOSA SPRITE 300ML VIDRIO"],["201018","FUZE TEA 300ML RETORNABLE"],["301003","CERVEZA CORONA 330ML"],["301002","CERVEZA CLUB VERDE 330ML"],["301009","CERVEZA STELLA 330ML"],["302025","RON BACARDI (604)/463 de 700ml"],["302047","FREIXENET CARTA NEVADA"],["302009","FREIXENET CORDON NEGRO"],["302046","VINO BLANCO MARQUES DE RISCAL RUEDA"],["302024","VINO TINTO MARQUES DE RISCAL ARIENZO"],["302049","GRAN DUQUE ALBA"],["302003","BOMBAY SHAPIRE 582"],["302038","VODKA ABSOLUTE"],["302076","VINO CARMEN INSIGNE CHARDONAY/410"],["302075","VINO CARMEN INSIGNE MERLOT/390/380"],["302079","CHAMPAGNE ESPUMANTE LAMBRUSCO DELLEMILIA ROSADO 750ML"],["320044","WHISKY JOHNIE ROJO 408"],["302039","WHISKY BUCHANANS 520 (700ml)"],["302043","WHISKY JHONIE BLACK LABEL 406"],["302045","WHISKY OLD PARR (505)"],["302074","TEQUILA SOMBRERO NEGRO (636)"],["302005","CAMPARI"],["302058","CINZANO"],["302023","MEDIA DE CIGARRILLO MARLBORO BLANCO"],["302052","MEDIA DE CIGARRILLO MARLBORO DOBLE CAPSULA"],["302051","MEDIA DE CIGARRILLO MARLBORO ROJO"],["302057","VINO TINTO COCINA CENTRAL 363"],["302056","VINO BLANCO COCINA CENTRAL 363"],["201004","AGUA MINERAL 3LTS"],["201053","IMPERIAL TORONJA 1.5 L"],["201007","AGUA TONICA 2 LITROS"],["201040","AGUA TONICA 3 LITROS"],["105002","AJI TABASCO 60ML"],["105015","AZUCAR BLANCA"],["302061","CAÑA MANABITA/AGUARDIENTE CRISTAL (436)"],["301011","CERVEZA CLUB VERDE 880 CC"],["301012","CERVEZA CLUB VERDE 550CC"],["301007","CERVEZA PILSENER LIGHT 1LT"],["201041","COLA SPRITE 1.35 LITROS"],["201051","GASEOSA COCA COLA 1 LITRO"],["201057","GASEOSA SPRITE 1.75 LITROS"],["302084","GIN NACIONAL (SOUTH BANK) 366 (627LIQUIDO)"],["106010","GRANADINA CEREZA"],["105163","GRANADINA DE MENTA"],["1091044","HIERBA BUENA"],["105211","JUGO DE LIMON SUCEDANEO 3.75 L"],["105215","JUGO SQUIZ 2 LITROS"],["104007","LECHE CONDENSADA"],["105057","LECHE DE COCO"],["104009","LECHE EVAPORADA 400ML"],["302018","LICOR DE COCO 451"],["302013","LICOR AMARETTO (451)PB"],["302015","LICOR CURACAO 750ML 451"],["302016","LICOR DE CACAO 451"],["302017","LICOR DE CAFÉ 451"],["302019","LICOR DE DURAZNO"],["302021","LICOR DE MENTA 451/379"],["302022","LICOR TRIPLE SEC 451(773 LIQUIDO)"],["1091055","LIMON TAHITI"],["108018","MARACUYA"],["105068","MILANO DE CHOCOLATE"],["105069","MILANO DE FRESA"],["105223","ARROPE DE MORA GRANMOTHER"],["108020","MORA"],["108026","PIÑAS"],["302028","RON NACIONAL(RIENDA/RIO) 525-436"],["105099","SALSA INGLESA 200ML"],["105221","TAJIN CLASICO 142G"],["302030","TEQUILA EL CHARRO 511"],["302037","VODKA NACIONAL (SIBERIAN) 582"],["302088","VINO TINTO DOLCE TERRA 8GR 750ML"],["201070","LEGZ ICE TEA LIMON 925G"],["302090","WHISKHY NACIONAL"]],"10":[["104008","LECHE ENTERA"],["104027","YOGURT DURAZNO"],["104028","YOGURT FRUTILLA"],["104029","YOGURT MORA"],["201004","AGUA MINERAL 3LTS"],["105087","PIMIENTA EN SACHET 8GR"],["105093","SAL EN SACHET 1 GR"],["104033","MOSTAZA SACHET 5GR"],["105157","MAYONESA EN SACHET DE 7GR"],["105158","SALSA DE TOMATE EN SACHET DE 7GR"],["105206","AJI ORIENTALFRASCO 100ML"],["105030","CHOCOLATE EN POLVO"],["105049","GRANOLA"],["105027","CEREAL 350GR"],["105016","AZUCAR BLANCA SOBRES"],["105019","AZUCAR MORENA SOBRES"],["105100","STEVIA *100 SOBRES"],["105190","HIERBAS AROMATICAS ANIS"],["105193","HIERBAS AROMATICAS HIERBA LUISA"],["105184","HIERBAS AROMATICAS MANZANILLA"],["105189","HIERBAS AROMATICAS MENTA"],["105220","HIERBAS AROMATICAS TE NEGRO HORNIMANS"],["105192","HIERBAS AROMATICAS TORONJIL Y VALERIANA"],["104013","MANTEQUILLA 8GR."],["105065","MERMELADA 8GR"],["105191","CAFÉ SELLO ROJO"]],"15":[["106010","GRANADINA CEREZA 0,451"],["201002","AGUA BOTELLON 20LTS"],["201003","AGUA DASANI"],["201005","AGUA MINERAL VIDRIO 300ML"],["201011","GASEOSA COCACOLA 500ML"],["201012","GASEOSA COCACOLA LIGHT 500ML"],["201018","FUZE TEA 300ML RETORNABLE"],["201019","GASEOSA SPRITE 300ML VIDRIO"],["201022","COCA COLA 300 ML VIDRIO"],["201024","COLA FIORA 300 ML VIDRIO"],["201025","COLA FANTA 300 ML VIDRIO"],["201034","AGUA MINERAL 330ML NO RETORNABLE"],["201067","GASEOSA COCA COLA ZERO 500ML"],["201068","GASEOSA FANTA 500ML"],["201069","GASEOSA SPRITE 500ML"],["301002","CERVEZA CLUB VERDE 330ML"],["301003","CERVEZA CORONA 330ML"],["301007","CERVEZA PILSENER LIGHT 1LT"],["301008","CERVEZA PILSENER LIGHT 330ML"],["301009","CERVEZA STELLA 330ML"],["301011","CERVEZA CLUB VERDE 850CC"],["302003","BOMBAY SHAPIRE"],["302005","CAMPARI"],["302009","FREIXENET CORDON NEGRO"],["302011","GINEBRA TANQUERAY"],["302013","LICOR AMARETTO 0,451"],["302015","LICOR CURACAO 750ML 0,451"],["302016","LICOR DE CACAO 451"],["302018","LICOR DE COCO 451"],["302019","LICOR DE DURAZNO 0,451"],["302021","LICOR DE MENTA 451/379"],["302022","TRIPLE SEC 451(773 LIQUIDO)"],["302024","VINO TINTO MARQUES DE RISCAL ARIENZO 0,465"],["302025","RON BACARDI 0,473"],["302032","VINO BLANCO CARMEN SAUVIGNON"],["302035","VINO TINTO CARMEN SAUVIGNON 0,357"],["302038","VODKA ABSOLUTE 0,500"],["302039","WHISKY BUCHANANS 0,520"],["302045","WHISKY OLD PARR 0,520"],["302046","VINO BLANCO MARQUES DE RISCAL RUEDA"],["302047","FREIXENET CARTA NEVADA"],["302049","GRAN DUQUE DE ALBA 0,867"],["302050","WHISKY BLACK LABEL 0,359"],["302058","VERMOUTH CINZANO 0.566"],["302060","PISCO OCUCAJE 0.480"],["302061","CAÑA MANABITA/AGUARDIENTE CRISTAL 0,355"],["302074","TEQUILA SOMBRERO NEGRO 0,640"],["302075","VINO CARMEN INSIGNE MERLOT 0,390"],["302076","VINO CARMEN INSIGNE CHARDONAY 0,411"],["320044","WHISKY JOHNIE ROJO 0,392"]],"16":[["401009","BOTELLA CON ATOMIZAROD"],["401018","CLORO LIQUIDO"],["401021","CUCHARAS DESECHABLES PAQUETE X50"],["401025","ESCOBA CON MANGO DE MADERA"],["401041","GUANTES DE NITRILO"],["401049","PALILLOS DE DIENTES *100 U"],["401050","PAÑO MICROFIBRA"],["401083","SERVILLETA INSTITUCIONAL ELITE X400"],["401104","CINTA DE EMBALAJE"],["401183","SORBETES EMPACADOS PAQUETE X100"],["401214","ROLLO TERMICO"],["401247","PAÑOS REUSABLES"],["401406","TENEDORES DESECHABLES X 50 UNIDADES"],["401422","FUNDA PALO SANTO"],["401069","PULSERAS MORADAS"],["401072","PULSERAS ROJAS"]]};
+const INV_REORG_1025_MOVER = [
+  {de:"10", a:"08", codigos:{"301011":"301011","302016":"302016","302018":"302018","302089":"302088","301007":"301007","301012":"301012","302021":"302021","302022":"302022","302028":"302028","302037":"302037","302084":"302084","302088":"302088"}},
+  {de:"16", a:"10", codigos:{"105087":"105087","105093":"105093","104033":"104033","105157":"105157","105158":"105158","105206":"105206"}}
+];
+function invPlanReorg1025(regs){
+  const plan=[];
+  for(const cod of Object.keys(INV_REORG_1025)){
+    const b=invBodega(cod); if(!b) continue;
+    const act=(b.productos||[]);
+    const nuevo=INV_REORG_1025[cod].map(([c,n])=>{ const ex=invBuscarItem(act,{codigo:c,nombre:n}); return ex ? {...ex} : {codigo:c, nombre:n}; });
+    const k=x=>(x.codigo||"")+"|"+x.nombre;
+    const agregar=nuevo.filter(x=>!act.some(a=>k(a)===k(x))), quitar=act.filter(a=>!nuevo.some(x=>k(a)===k(x)));
+    plan.push({cod, nombre:b.nombre, nuevo, agregar, quitar});
+  }
+  const ultimo=(cb)=>(regs||[]).filter(r=>r.bodega===cb && r.fecha<hoyISO()).sort((a,c)=>a.fecha<c.fecha?1:-1)[0];
+  const mover=[];
+  for(const m of INV_REORG_1025_MOVER){ const u=ultimo(m.de); if(!u) continue;
+    for(const it of (u.items||[])){ const dest=m.codigos[it.codigo||""]; if(!dest) continue;
+      const q=Math.round(invFinalVista(it)*1000)/1000; if(q>0) mover.push({de:m.de, a:m.a, codigo:dest, nombre:it.nombre, cantidad:q, fechaOrigen:u.fecha}); } }
+  return {plan, mover};
+}
+async function invAplicarReorg1025(quien, user){
+  if(INV_CFG.reorg1025) throw new Error("Esta reorganización ya se aplicó el "+INV_CFG.reorg1025.en);
+  let regs=invSinDuplicados(await Store.read("Inventario",{noCache:true}));
+  const {plan, mover}=invPlanReorg1025(regs);
+  for(const p of plan){ const b=invBodega(p.cod); b.productos=p.nuevo; }
+  INV_CFG.reorg1025={en:nowISO(), por:quien};
+  await invCfgSave();
+  const hoy=hoyISO(), log=[];
+  for(const p of plan){
+    regs=invSinDuplicados(await Store.read("Inventario",{noCache:true}));
+    let rec=regs.find(r=>r.bodega===p.cod && r.fecha===hoy);
+    if(!rec) rec=await invCrearRegistroPara_(p.cod, user, hoy, regs.filter(r=>r.bodega===p.cod));
+    else if(!rec.cerrado) rec=await invSincronizarItems(rec, regs.filter(r=>r.bodega===p.cod));
+    log.push(`${p.nombre}: catálogo con ${p.nuevo.length} productos (+${p.agregar.length} / −${p.quitar.length}); registro de hoy listo.`);
+  }
+  for(const cb of [...new Set(mover.map(m=>m.a))]){
+    regs=invSinDuplicados(await Store.read("Inventario",{noCache:true}));
+    const rec=regs.find(r=>r.bodega===cb && r.fecha===hoy); if(!rec || rec.cerrado){ log.push(`${invBodega(cb).nombre}: no se pudo pasar el saldo (registro de hoy cerrado o inexistente).`); continue; }
+    const items=(rec.items||[]).map(it=>({...it})); const notas=[];
+    for(const m of mover.filter(x=>x.a===cb)){
+      const it=items.find(i=>(i.codigo||"")===m.codigo); if(!it){ notas.push(`${m.nombre}: no está en el catálogo destino`); continue; }
+      it.tp=Math.round(((+it.tp||0)+m.cantidad)*1000)/1000;
+      notas.push(`${it.nombre} +${m.cantidad} (de ${invBodega(m.de).nombre}, final del ${m.fechaOrigen})`);
+    }
+    const ajuste={por:quien, en:nowISO(), nota:"Reorganización de bodegas 25/10: saldo pasado como Traslado (+). "+notas.join("; ")};
+    await Store.writeOne("Inventario", {...rec, items, ajustes:[...(rec.ajustes||[]), ajuste]});
+    log.push(`${invBodega(cb).nombre}: ${notas.length} saldo(s) pasado(s) como Traslado (+).`);
+  }
+  return log;
+}
+function InventarioReorg1025({user,toast}){
+  const [data,setData]=useState(null); const [cargando,setCargando]=useState(false); const [log,setLog]=useState(null);
+  async function revisar(){ setCargando(true); try{ await invCfgRefrescar(true); setData(invPlanReorg1025(invSinDuplicados(await Store.read("Inventario",{noCache:true})))); setLog(null);}catch(e){toast("No se pudo revisar: "+(e.message||e));} finally{setCargando(false);} }
+  async function aplicar(){ if(!window.confirm("Se cambiarán los catálogos de Sunset Bar Bebidas, Plaza Paraíso, Bar Villamar y Sunset Bar Suministros, y se pasarán los saldos indicados como Traslado (+) en el registro de hoy. ¿Continuar?")) return;
+    setCargando(true); try{ setLog(await invAplicarReorg1025(user.nombre||"Desarrollador", user)); toast("Reorganización aplicada."); }catch(e){ toast("No se pudo aplicar: "+(e.message||e)); } finally{ setCargando(false); } }
+  const hecho=INV_CFG.reorg1025;
+  return <div className="card" style={{marginTop:24,padding:"14px 16px"}}>
+    <h3 style={{marginTop:0}}>Reorganizar bodegas (Excel del 25/10)</h3>
+    {hecho ? <div className="hint">✓ Aplicada el {fmtDT(hecho.en)} por {hecho.por}.</div> : <>
+    <p className="hint" style={{marginBottom:10}}>Deja los listados como en el Excel del 25/10: separa lo de bar de Plaza Paraíso, pasa los sachets a Plaza Paraíso, agrega los productos de desayuno y los nuevos de Sunset Bar. Revisa la lista y luego aplica.</p>
+    <div className="row" style={{gap:8,flexWrap:"wrap"}}>
+      <button className="btn" disabled={cargando} onClick={revisar}>{cargando?"Revisando…":"Revisar cambios"}</button>
+      {data && <button className="btn primary" disabled={cargando} onClick={aplicar}>Aplicar</button>}
+    </div></>}
+    {data && !hecho && <div style={{marginTop:10,fontSize:13}}>
+      {data.plan.map(p=><div key={p.cod} style={{marginBottom:10}}><b>{p.nombre}</b> — quedan {p.nuevo.length} productos
+        {!!p.agregar.length && <div style={{color:"var(--green)"}}>+ Agregar: {p.agregar.map(x=>x.nombre).join(", ")}</div>}
+        {!!p.quitar.length && <div style={{color:"#9a3324"}}>− Quitar: {p.quitar.map(x=>x.nombre).join(", ")}</div>}
+        {!p.agregar.length && !p.quitar.length && <div className="hint">Solo cambia el orden.</div>}</div>)}
+      <b>Saldos que cambian de bodega (Traslado + en el registro de hoy)</b>
+      {data.mover.length ? data.mover.map((m,i)=><div key={i}>{m.nombre}: {invFmt(m.cantidad)} de {invBodega(m.de).nombre} → {invBodega(m.a).nombre}</div>) : <div className="hint">Ninguno.</div>}
+    </div>}
+    {log && <div style={{marginTop:10,fontSize:13}}>{log.map((l,i)=><div key={i}>• {l}</div>)}</div>}
+  </div>;
+}
 function InventarioCorreccion25({user,toast}){
   const [plan,setPlan]=useState(null); const [cargando,setCargando]=useState(false); const [log,setLog]=useState(null);
   async function revisar(){ setCargando(true); try{ setPlan(await invPlanCorreccion25()); setLog(null);}catch(e){toast("No se pudo revisar: "+(e.message||e));} finally{setCargando(false);} }
@@ -3084,6 +3174,7 @@ function InventarioConfig({user,toast}){
     </div>)}
     {!jefaturasYGerencia.length && <div className="hint">No hay cuentas de jefatura o Gerencia cargadas todavía.</div>}
     <InventarioConfigCostos user={user} toast={toast}/>
+    {esDev(user) && <InventarioReorg1025 user={user} toast={toast}/>}
     {esDev(user) && <InventarioCorreccion25 user={user} toast={toast}/>}
     {esGD(user) && <div className="card" style={{marginTop:24,padding:"14px 16px",background:"#fdeceb",borderColor:"#e8b4ae"}}>
       <h3 style={{marginTop:0,color:"#9a3324"}}><Icon name="alert" size={16} style={{marginRight:6}}/>Zona de riesgo</h3>
@@ -3259,7 +3350,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-20a";
+const APP_BUILD = "2026-10-26a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
