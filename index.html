@@ -1089,7 +1089,13 @@ function invCostoUnit(it){
 const INV_CODIGOS_VENTA = ["201005","201034","201003","201022","201012","201035","201024","201025","201019","201018",
   "301003","301002","301009","302025","302047","302009","302046","302024","302049","302003","302038","302076","302075",
   "302079","320044","302039","302043","302045","302074","302005","302058","302023","302052","302051"];
-function invEsVenta(it){ const c=String((it&&it.codigo)||"").trim(); if(!c) return false;
+/* Bar Villamar (La Almeja Playera) tiene su propia clasificación, validada por
+   Estrategia el 27/10/2026 (Excel del 25/10): ahí se factura casi todo, incluso
+   licores nacionales y gaseosas de 500 ml. Solo son todo incluido: granadina,
+   agua botellón, Pilsener light 1 L y Club Verde 850 cc. */
+const INV_VENTA_POR_BODEGA = {"15": ["201003", "201005", "201011", "201012", "201018", "201019", "201022", "201024", "201025", "201034", "201067", "201068", "201069", "301002", "301003", "301008", "301009", "302003", "302005", "302009", "302011", "302013", "302015", "302016", "302018", "302019", "302021", "302022", "302024", "302025", "302032", "302035", "302038", "302039", "302045", "302046", "302047", "302049", "302050", "302058", "302060", "302061", "302074", "302075", "302076", "320044"]};
+function invEsVenta(it, bodega){ const c=String((it&&it.codigo)||"").trim(); if(!c) return false;
+  const cb = bodega && (bodega.codigo||bodega); if(cb && INV_VENTA_POR_BODEGA[cb]) return INV_VENTA_POR_BODEGA[cb].includes(c);
   const extra=(INV_CFG.costos && Array.isArray(INV_CFG.costos.venta)) ? INV_CFG.costos.venta : [];
   return INV_CODIGOS_VENTA.includes(c) || extra.includes(c); }
 function invCostosDia(rec){
@@ -1098,7 +1104,7 @@ function invCostosDia(rec){
     const cant = invConsumoVista(it), me = +it.merma||0;
     if(!cant && !me) continue;
     const cu = invCostoUnit(it);
-    const esVenta = invEsVenta(it);
+    const esVenta = invEsVenta(it, rec && rec.bodega);
     if(cu===null){ if(!esVenta) sinCosto.push(it); lineas.push({it, cant, merma:me, cu:null, total:null, totalMerma:null, venta:esVenta}); continue; }
     const t = cant*cu, tm = me*cu;
     if(esVenta) venta += t+tm; else { consumo += t; merma += tm; }
@@ -1392,7 +1398,7 @@ async function invExcelDia(fecha, datos){
       const cons=invConsumoVista(it), cu=invCostoUnit(it), fin=invFinalVista(it), me=+it.merma||0;
       const neg = cons!==null && Math.round(cons*100)/100 < 0;
       const sinC = cu===null && (cons||me);
-      const esV = invEsVenta(it);
+      const esV = invEsVenta(it, r.bodega);
       const g = cu===null ? null : ((cons||0)+me)*cu; if(g){ if(esV) vTot+=g; else gTot+=g; }
       const row=xlFila(ws,i,cols,[it.codigo||"",it.nombre,invUnidad(it,r.bodega)||"",+it.inicial||0,+it.tp||0,+it.tn||0,me,fin,
         xlF(`D${i}+E${i}-F${i}-G${i}-H${i}`, cons), cu,
@@ -3350,7 +3356,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-26a";
+const APP_BUILD = "2026-10-27a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
