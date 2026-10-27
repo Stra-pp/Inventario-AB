@@ -1046,7 +1046,9 @@ const INV_BODEGAS_BEBIDAS = ["08","15"]; // Sunset Bar Bebidas, Bar Villamar
 function invEsBebidas(bodega){ return !!(bodega && (bodega.esBebidas || INV_BODEGAS_BEBIDAS.includes(bodega.codigo))); }
 const INV_BODEGAS_SOLO_AC = ["07"]; // Chiringuito Cocina (snacks): solo quienes almuerzan y cenan
 function invSoloAlmuerzoCena(bodega){ return invEsBebidas(bodega) || !!(bodega && INV_BODEGAS_SOLO_AC.includes(bodega.codigo)); }
-function invServiciosDisponibles(bodega){ return invSoloAlmuerzoCena(bodega) ? ["Almuerzo","Cena"] : INV_SERVICIOS_SUGERIDAS; }
+const INV_BODEGAS_SOLO_DESAYUNO = ["10"]; // Plaza Paraíso: solo PAX de desayuno (pedido 27/10/2026)
+function invSoloDesayuno(bodega){ return !!(bodega && INV_BODEGAS_SOLO_DESAYUNO.includes(bodega.codigo)); }
+function invServiciosDisponibles(bodega){ return invSoloDesayuno(bodega) ? ["Desayuno"] : invSoloAlmuerzoCena(bodega) ? ["Almuerzo","Cena"] : INV_SERVICIOS_SUGERIDAS; }
 /* Las bodegas de bebidas solo tienen Almuerzo y Cena. Antes, el selector
    mostraba "Almuerzo" pero guardaba "Desayuno" (valor inicial fuera de la
    lista). Se valida al guardar y, lo ya guardado como Desayuno en una bodega
@@ -1463,7 +1465,7 @@ async function invExcelDia(fecha, datos){
   const leyenda=[["Cómo leer este archivo:",null],
     ["• Gasto del día = (consumo + merma) × costo unitario de Zeus, SOLO de productos todo incluido. La merma no se descuenta: es gasto del día.",null],
     ["• Los productos de venta (aguas y gaseosas personales, cervezas 330 ml, licores importados, vinos, cigarrillos) van aparte en la columna \"Venta (facturado)\" y en morado en cada hoja: se cuadran con lo facturado.","FFEDE7F6"],
-    ["• Hotel: cada bodega se divide para sus PAX (personas atendidas; Chiringuito solo almuerzo y cena). El costo por PAX real es la suma de los costos por PAX de cada bodega.",null],
+    ["• Hotel: cada bodega se divide para sus PAX (personas atendidas; Chiringuito solo almuerzo y cena; Plaza Paraíso solo desayuno). El costo por PAX real es la suma de los costos por PAX de cada bodega.",null],
     ["• La Almeja Playera se mide por ticket promedio (gasto / tickets) y va aparte.",null],
     ["• Las cifras son fórmulas: si se corrige una cantidad en la hoja de una bodega, se recalculan su gasto, su costo por PAX y este resumen.",null],
     ["• En cada hoja de bodega, las filas en rojo son productos con CONSUMO NEGATIVO (revisar conteo o traslados); en amarillo, productos con movimiento sin costo cargado.",XL.rojo]];
@@ -1501,7 +1503,7 @@ function invEmailCostos(fecha, datos){
     <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">Productos de venta (facturado) — no son todo incluido</h3>
     ${R.venta.length ? `<table style="border-collapse:collapse;width:100%;max-width:600px"><thead><tr><th ${th}>Bodega</th><th ${thr}>Costo de lo consumido</th></tr></thead><tbody>${R.venta.map(v=>`<tr><td ${td}><b>${v.b.nombre}</b></td><td ${tdr}>${invDinero(v.venta)}</td></tr>`).join("")}</tbody><tfoot><tr><td ${tf}><b>Total venta</b></td><td ${tfr}><b>${invDinero(R.totVenta)}</b></td></tr></tfoot></table><p style="color:#5c6b6e;font-size:12px;margin:4px 0 0">Aguas y gaseosas personales, cervezas de 330 ml, licores importados, vinos y cigarrillos. Se excluyen del costo todo incluido y se cuadran con lo facturado.</p>` : `<p style="color:#5c6b6e">No hubo consumo de productos de venta.</p>`}
     <h3 style="margin:18px 0 4px;font-size:15px">Desviaciones del día (consumo negativo)</h3>${negHtml}
-    <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto del día = (consumo + merma) × costo unitario de Zeus, solo de productos todo incluido. PAX = personas atendidas registradas por el personal de servicio (Chiringuito: solo almuerzo y cena). Adjunto: detalle de inventarios por bodega con sus costos (Excel). Reporte automático de Inventario A&amp;B.</p></div>`;
+    <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto del día = (consumo + merma) × costo unitario de Zeus, solo de productos todo incluido. PAX = personas atendidas registradas por el personal de servicio (Chiringuito: solo almuerzo y cena; Plaza Paraíso: solo desayuno). Adjunto: detalle de inventarios por bodega con sus costos (Excel). Reporte automático de Inventario A&amp;B.</p></div>`;
 }
 async function invEnviarReporteCostos(prueba){
   if(MODE!=="graph" || (!prueba && invHoraMinECActual() < 10*60+30)) return {enviado:false};
@@ -2343,7 +2345,7 @@ function InventarioServicio({user,toast}){
         <Icon name="alert" size={15}/> Esto es PAX del <b>{rec.fecha}</b>, que quedó sin cerrar. Hay hasta las <b>10:00am de hoy</b> para registrarlo — pasada esa hora ya no se podrá editar.</div>}
     <div className="card" style={{padding:"12px 14px"}}>
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:2}}>PAX por servicio</div>
-      <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega":"Adultos y niños atendidos hoy en esta bodega"}{invSoloAlmuerzoCena(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
+      <div className="hint" style={{marginBottom:10}}>{esBar?"Adultos atendidos hoy en esta bodega":"Adultos y niños atendidos hoy en esta bodega"}{invSoloDesayuno(bodegaObj)?" (solo Desayuno)":invSoloAlmuerzoCena(bodegaObj)?" (Almuerzo y Cena)":" (Desayuno, Almuerzo y Cena)"}.</div>
       {(rec.servicios||[]).length===0 && <div className="hint" style={{marginBottom:8}}>Aún no se ha registrado ningún servicio hoy.</div>}
       {(rec.servicios||[]).map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f3efe6",borderRadius:10,padding:"7px 10px",marginBottom:6,fontSize:13}}>
         <div style={{fontWeight:700,flex:"1 1 auto"}}>{invNombreServicio(bodegaObj, s.nombre)}</div>
@@ -3356,7 +3358,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-27a";
+const APP_BUILD = "2026-10-27b";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
