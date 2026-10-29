@@ -739,7 +739,7 @@ const esJefeOperaciones = u => esMerma(u);
 let USERS=[
   {id:'dev',nombre:'Desarrollador',pin:'9999',rol:'desarrollador',areas:[]},
   {id:'g1',nombre:'Gerencia General',pin:'0000',rol:'gerencia',areas:[]},
-  {id:'a1',nombre:'Antonio Puga',pin:'1001',rol:'aprobador',areas:['Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Cierre Plaza Paraíso','Apertura Cocina','Cocina Central','Cocina Almeja Playera','Servicio Almeja Playera','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa'],merma:true},
+  {id:'a1',nombre:'Antonio Puga',pin:'0707',rol:'aprobador',areas:['Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Cierre Plaza Paraíso','Apertura Cocina','Cocina Central','Cocina Almeja Playera','Servicio Almeja Playera','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa'],merma:true},
   {id:'a2',nombre:'Coordinador Comercial',pin:'1002',rol:'aprobador',areas:['Recepción Apertura','Recepción Cierre']},
   {id:'a3',nombre:'Jefe de Mantenimiento',pin:'1003',rol:'aprobador',areas:['Mantenimiento']},
   {id:'a4',nombre:'Ama de Llaves',pin:'1004',rol:'aprobador',areas:['Áreas Públicas','Habitaciones']},
@@ -3358,7 +3358,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-27b";
+const APP_BUILD = "2026-10-29a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
