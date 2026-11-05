@@ -1151,6 +1151,13 @@ function invResumenCostos(datos){
   const venta = (datos||[]).filter(x=>x.c && x.c.venta).map(x=>({b:x.b, venta:x.c.venta}));
   return {hotel, rest, venta, totVenta:venta.reduce((a,x)=>a+x.venta,0), totHotel:{gasto:sum(hotel,"gasto"), cpp:sum(hotel,"cpp")}, totRest:{gasto:sum(rest,"gasto"), tickets:sum(rest,"pax")}};
 }
+/* Costo por huésped del día (mismo criterio que el reporte semanal):
+   gasto del hotel ÷ huéspedes del día (el servicio con más personas en
+   Cocina Central) y +% de otros ítems (invPctOtros, 35%). */
+function invCostoHuespedDia(datos){ const PO=invPctOtros(); const hu=invHuespedesDia(datos||[]);
+  const hot=(datos||[]).filter(x=>!invEsRestaurante(x.b)); const gasto=hot.reduce((t,x)=>t+(x.c?x.c.consumo+x.c.merma:0),0);
+  const neg=hot.some(x=>x.c && (x.c.consumo+x.c.merma)<0); const cph=hu?gasto/hu:null;
+  return {hu, gasto, neg, pct:PO, cph, otros:cph===null?null:cph*PO, total:cph===null?null:cph*(1+PO), gastoOtros:gasto*PO, gastoTotal:gasto*(1+PO)}; }
 function invDinero(n){ if(n===null||n===undefined||isNaN(+n)) return "—"; const v=Math.round((+n)*100)/100; return (v<0?"-$":"$")+Math.abs(v).toFixed(2); }
 /* Desviaciones: SOLO consumo negativo (la cantidad final es mayor que lo que
    había disponible). Es lo único que de verdad indica un error de conteo o de
@@ -1242,6 +1249,7 @@ function invHoraMinECActual(){ try{ const t=new Date().toLocaleString("en-US",{t
 async function invEnviarCorreosAutomaticos(){
   try{ await invEnviarReporteDiario(); }catch(e){}
   try{ await invEnviarReporteCostos(); }catch(e){}
+  try{ await invEnviarReporteSemanal(); }catch(e){}
 }
 async function invEnviarReporteDiario(prueba){
   if(MODE!=="graph" || (!prueba && !invLimite10amPasado())) return {enviado:false};
@@ -1456,7 +1464,13 @@ async function invExcelDia(fecha, datos){
     t.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22; };
   seccion("HOTEL — costo por persona atendida (PAX)");
   let h0=f; RC.hotel.forEach(filaR); let h1=f-1;
-  totalR("TOTAL HOTEL (costo por PAX real = suma de las bodegas)", h0, h1, RC.totHotel.gasto, RC.totHotel.cpp, true);
+  const CH = invCostoHuespedDia(datos);
+  const fSub=f; totalR("SUBTOTAL A&B HOTEL (inventario)", h0, h1, RC.totHotel.gasto, null, false);
+  wsR.getCell(fSub,4).value=CH.hu; wsR.getCell(fSub,4).numFmt="#,##0"; wsR.getCell(fSub,6).value=xlF(`IFERROR(E${fSub}/D${fSub},"")`, CH.cph===null?"":CH.cph); wsR.getCell(fSub,6).numFmt=XL.dinero;
+  const fPc=f; const tp=xlFila(wsR,f++,colsR,[`Otros ítems (+${Math.round(CH.pct*100)}%)`,"Porcentaje:",CH.pct,null, xlF(`E${fSub}*C${fPc}`,CH.gastoOtros), xlF(`IFERROR(F${fSub}*C${fPc},"")`,CH.otros===null?"":CH.otros),null,null,null],{bg:"FFFCEBD9",color:"FF8A4B12"});
+  tp.getCell(3).numFmt="0%"; tp.getCell(2).alignment={horizontal:"right"};
+  const fTo=f; const tt=xlFila(wsR,f++,colsR,["TOTAL HOTEL (con otros ítems)","","",xlF(`D${fSub}`,CH.hu), xlF(`E${fSub}+E${fPc}`,CH.gastoTotal), xlF(`IFERROR(E${fTo}/D${fTo},"")`,CH.total===null?"":CH.total),null,null,null],{bg:XL.azulClaro,bold:true});
+  tt.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); tt.height=22;
   f++;
   seccion("LA ALMEJA PLAYERA — ticket promedio (aparte, no se suma al hotel)");
   let r0=f; RC.rest.forEach(filaR); let r1=f-1;
@@ -1465,7 +1479,7 @@ async function invExcelDia(fecha, datos){
   const leyenda=[["Cómo leer este archivo:",null],
     ["• Gasto del día = (consumo + merma) × costo unitario de Zeus, SOLO de productos todo incluido. La merma no se descuenta: es gasto del día.",null],
     ["• Los productos de venta (aguas y gaseosas personales, cervezas 330 ml, licores importados, vinos, cigarrillos) van aparte en la columna \"Venta (facturado)\" y en morado en cada hoja: se cuadran con lo facturado.","FFEDE7F6"],
-    ["• Hotel: cada bodega se divide para sus PAX (personas atendidas; Chiringuito solo almuerzo y cena; Plaza Paraíso solo desayuno). El costo por PAX real es la suma de los costos por PAX de cada bodega.",null],
+    ["• Hotel: cada bodega se divide para sus PAX (personas atendidas; Chiringuito solo almuerzo y cena; Plaza Paraíso solo desayuno). En las filas de totales, la columna de costo es el costo por HUÉSPED del día: gasto ÷ huéspedes (el servicio con más personas en Cocina Central). Se suma el % de otros ítems (celda naranja, editable).",null],
     ["• La Almeja Playera se mide por ticket promedio (gasto / tickets) y va aparte.",null],
     ["• Las cifras son fórmulas: si se corrige una cantidad en la hoja de una bodega, se recalculan su gasto, su costo por PAX y este resumen.",null],
     ["• En cada hoja de bodega, las filas en rojo son productos con CONSUMO NEGATIVO (revisar conteo o traslados); en amarillo, productos con movimiento sin costo cargado.",XL.rojo]];
@@ -1479,7 +1493,7 @@ function invEmailCostos(fecha, datos){
   const td='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px"', tdr='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;text-align:right"';
   const th='style="text-align:left;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"', thr='style="text-align:right;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"';
   const tf='style="padding:7px 8px;border-top:2px solid #2a6f77;background:#e6f2f3;font-size:13px"', tfr='style="padding:7px 8px;border-top:2px solid #2a6f77;background:#e6f2f3;font-size:13px;text-align:right"';
-  const R = invResumenCostos(datos);
+  const R = invResumenCostos(datos), CH = invCostoHuespedDia(datos);
   const fila = (x, etiqPax) => { const {b,r,c}=x;
     if(!r) return `<tr><td ${td}><b>${b.nombre}</b></td><td ${td}>Sin registro</td><td ${tdr}>—</td><td ${tdr}>—</td><td ${tdr}>—</td></tr>`;
     const n=invDesviacionesDe(r).length;
@@ -1494,8 +1508,10 @@ function invEmailCostos(fecha, datos){
     <h3 style="margin:14px 0 4px;font-size:15px;color:#1f4e5f">Hotel — costo por persona atendida</h3>
     <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>PAX</th><th ${thr}>Gasto del día</th><th ${thr}>Costo por PAX</th></tr></thead>
     <tbody>${R.hotel.map(x=>fila(x,"PAX")).join("")}</tbody>
-    <tfoot><tr><td ${tf}><b>Total hotel</b></td><td ${tf}></td><td ${tfr}></td><td ${tfr}><b>${invDinero(R.totHotel.gasto)}</b></td><td ${tfr}><b>${invDinero(R.totHotel.cpp)}</b></td></tr></tfoot></table>
-    <p style="color:#5c6b6e;font-size:12px;margin:4px 0 0">Costo por PAX real del día = suma de los costos por PAX de cada bodega (comida + snacks + bebidas que consume una persona).</p>
+    <tfoot><tr style="background:#f5f3ee"><td ${td}><b>Subtotal A&amp;B (inventario)</b></td><td ${td}></td><td ${tdr}>${CH.hu||"—"} huésp.</td><td ${tdr}><b>${invDinero(CH.gasto)}</b></td><td ${tdr}><b>${invDinero(CH.cph)}</b></td></tr>
+    <tr><td ${td}>Otros ítems (+${Math.round(CH.pct*100)}%)</td><td ${td}></td><td ${tdr}></td><td ${tdr}>${invDinero(CH.gastoOtros)}</td><td ${tdr}>${invDinero(CH.otros)}</td></tr>
+    <tr><td ${tf}><b>TOTAL</b></td><td ${tf}></td><td ${tfr}></td><td ${tfr}><b>${invDinero(CH.gastoTotal)}</b></td><td ${tfr}><b>${invDinero(CH.total)}</b></td></tr></tfoot></table>
+    <p style="color:#5c6b6e;font-size:12px;margin:4px 0 0">En las filas de totales, la última columna es el <b>costo por huésped del día</b> = gasto del hotel ÷ huéspedes del día (el servicio con más personas registradas en Cocina Central). Otros ítems = ${Math.round(CH.pct*100)}% por costos del todo incluido que no pasan por el inventario.${CH.neg?' <b style="color:#b3261e">Ojo: hay bodegas con gasto negativo; el costo del día no es confiable hasta corregirlas.</b>':""}</p>
     <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">La Almeja Playera — ticket promedio (aparte, no se suma al hotel)</h3>
     <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>Tickets</th><th ${thr}>Gasto del día</th><th ${thr}>Ticket promedio</th></tr></thead>
     <tbody>${R.rest.map(x=>fila(x,"tickets")).join("")}</tbody>
@@ -1505,6 +1521,10 @@ function invEmailCostos(fecha, datos){
     <h3 style="margin:18px 0 4px;font-size:15px">Desviaciones del día (consumo negativo)</h3>${negHtml}
     <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto del día = (consumo + merma) × costo unitario de Zeus, solo de productos todo incluido. PAX = personas atendidas registradas por el personal de servicio (Chiringuito: solo almuerzo y cena; Plaza Paraíso: solo desayuno). Adjunto: detalle de inventarios por bodega con sus costos (Excel). Reporte automático de Inventario A&amp;B.</p></div>`;
 }
+/* Bodegas del día que NO están cerradas y aprobadas (aprobado === true). */
+function invFaltanAprobar(datos){
+  return (datos||[]).filter(({r})=>!(r && r.cerrado && r.aprobado===true))
+    .map(({b,r})=>({bodega:b.nombre, estado: !r ? "sin inventario registrado" : !r.cerrado ? "sin cerrar" : "cerrado, sin aprobar"})); }
 async function invEnviarReporteCostos(prueba){
   if(MODE!=="graph" || (!prueba && invHoraMinECActual() < 10*60+30)) return {enviado:false};
   const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
@@ -1518,6 +1538,21 @@ async function invEnviarReporteCostos(prueba){
     await invCfgSave();
   }
   const datos = invDatosDia(await Store.read("Inventario",{noCache:true}), ayer);
+  /* Gerencia General solo recibe información PUBLICADA (05/11/2026): el
+     correo de costos sale únicamente si TODAS las bodegas del día están
+     cerradas y aprobadas por el Jefe de Operaciones (Antonio Puga). A las
+     10:30 ya pasó el plazo de aprobación (10:00), así que si falta alguna, ese
+     día no se envía a Gerencia; en su lugar se avisa solo a las copias
+     (Estrategia / Jefatura A&B) qué faltó. */
+  const faltan = invFaltanAprobar(datos);
+  if(faltan.length){
+    const avisar = prueba ? invDestinatarios(prueba.para) : cc;
+    if(avisar.length) await gfetch("/me/sendMail","POST",{message:{
+      subject: (prueba?prueba.asunto+" — ":"")+`Inventario A&B — NO se envió a Gerencia el costo del ${ayer} (falta aprobación)`,
+      body:{contentType:"HTML", content:`<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a"><p>El correo de costos del <b>${ayer}</b> <b>no se envió a Gerencia General</b> porque no todas las bodegas quedaron aprobadas antes de las 10:00:</p><ul>${faltan.map(x=>`<li><b>${x.bodega}</b>: ${x.estado}</li>`).join("")}</ul><p style="color:#5c6b6e;font-size:12px">Gerencia General solo recibe el costo del día cuando el Jefe de Operaciones aprobó todas las bodegas. Aviso automático de Inventario A&amp;B.</p></div>`},
+      toRecipients: avisar }, saveToSentItems:true});
+    return {enviado:false, retenido:true, faltan};
+  }
   let adjuntos=[];
   try{ const b64 = await invExcelDia(ayer, datos);
     adjuntos=[{"@odata.type":"#microsoft.graph.fileAttachment", name:`Inventarios_AB_${ayer}.xlsx`, contentType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBytes:b64}];
@@ -1530,6 +1565,360 @@ async function invEnviarReporteCostos(prueba){
   return {enviado:true};
 }
 
+/* ===== Reporte SEMANAL: costo real del servicio (lunes 10:30) =====
+   Pregunta que responde: ¿cuánto nos cuesta, en alimentos y bebidas del todo
+   incluido, atender a UN HUÉSPED durante UN DÍA? Con ese número se arma el
+   presupuesto (costo por huésped al día × huéspedes esperados × días).
+   - Gasto = (consumo + merma) × costo de Zeus, solo productos todo incluido.
+   - Huéspedes del día (estimado) = el servicio con más personas registradas en
+     Cocina Central ese día (todo huésped come al menos una vez allí). Mientras
+     no se conecte la ocupación de Zeus, es la mejor referencia disponible.
+   - Costo por huésped al día = gasto del hotel ÷ huéspedes-día. Se reparte por
+     bodega (gasto de la bodega ÷ los mismos huéspedes-día), así la suma de las
+     bodegas da exactamente el total.
+   - Se mantiene el costo por persona atendida de cada bodega (gasto ÷ personas
+     registradas en sus servicios) como referencia.
+   - La Almeja Playera va aparte: costo por ticket. Venta (facturado) aparte.
+   Semana lunes–domingo anterior, mismos destinatarios del correo de 10:30, una
+   sola vez por semana. */
+const INV_BODEGA_HUESPEDES = "04";
+function invLunesDe(fecha){ const d=new Date(fecha+"T12:00:00Z"); const dow=(d.getUTCDay()+6)%7; return sumaDiasYMD(fecha,-dow); }
+function invSemanaAnterior(){ const lunesHoy=invLunesDe(hoyISO()); const ini=sumaDiasYMD(lunesHoy,-7); return {ini, fin:sumaDiasYMD(ini,6)}; }
+function invFechasEntre(ini,n){ const a=[]; for(let i=0;i<n;i++) a.push(sumaDiasYMD(ini,i)); return a; }
+/* Incremento por "otros ítems" del todo incluido que no pasan por el
+   inventario (Gerencia, 05/11/2026): +35% sobre el costo A&B por huésped.
+   Se puede cambiar en INV_CFG.alertas.pctOtrosItems (0.35 = 35%). */
+function invPctOtros(){ const a=INV_CFG.alertas||{}; const v=a.pctOtrosItems; return (v!==undefined&&v!==null&&v!==""&&!isNaN(+v)) ? +v : 0.35; }
+function invEstadoReg(r){ return r?(r.cerrado?(r.aprobado===true?"Cerrado y aprobado":"Cerrado, por aprobar"):"Sin cerrar"):"Sin registro"; }
+function invHuespedesDia(datos){ const x=datos.find(y=>y.b.codigo===INV_BODEGA_HUESPEDES); if(!x||!x.r) return 0;
+  return Math.max(0,...(x.r.servicios||[]).map(s=>(+s.adultos||0)+(+s.ninos||0))); }
+/* Arma TODOS los datos del reporte como datos simples (sin registros). */
+function invModeloSemana(regs, ini, nSem){
+  nSem=nSem||4; regs=invSinDuplicados(regs||[]);
+  const fin=sumaDiasYMD(ini,6);
+  const bodegas=(INV_CFG.bodegas||[]).map(b=>({codigo:b.codigo, nombre:b.nombre, rest:invEsRestaurante(b)}));
+  const dia=f=>{ const datos=invDatosDia(regs,f);
+    return {fecha:f, huespedes:invHuespedesDia(datos), filas:datos.map(({b,r,c})=>({cod:b.codigo, estado:invEstadoReg(r), aprob:!!(r&&r.cerrado&&r.aprobado===true), pax:c?c.pax:0, gasto:c?c.consumo+c.merma:0, merma:c?c.merma:0, venta:c?(c.venta||0):0}))}; };
+  const semanas=[]; for(let k=nSem-1;k>=0;k--){ const i0=sumaDiasYMD(ini,-7*k); semanas.push({ini:i0, fin:sumaDiasYMD(i0,6), dias:invFechasEntre(i0,7).map(dia)}); }
+  const mp={}, alertas=[];
+  for(const f of invFechasEntre(ini,7)) for(const {b,r,c} of invDatosDia(regs,f)){
+    if(!r){ alertas.push({fecha:f, bodega:b.nombre, tipo:"Sin registro", detalle:"No se tomó inventario ese día."}); continue; }
+    if(!r.cerrado) alertas.push({fecha:f, bodega:b.nombre, tipo:"Sin cerrar", detalle:"El día quedó sin cerrar: el gasto puede estar incompleto."});
+    else if(r.aprobado!==true) alertas.push({fecha:f, bodega:b.nombre, tipo:"Sin aprobar", detalle:"Cerrado pero no aprobado: no se usa para el costo."});
+    if(c && !c.pax && (c.consumo+c.merma)>0) alertas.push({fecha:f, bodega:b.nombre, tipo:invEsRestaurante(b)?"Sin tickets":"Sin personas", detalle:`Gasto ${invDinero(c.consumo+c.merma)} sin ${invEsRestaurante(b)?"tickets":"personas"} registradas.`});
+    if(c && (c.consumo+c.merma)<0) alertas.push({fecha:f, bodega:b.nombre, tipo:"Gasto negativo", detalle:`El día da ${invDinero(c.consumo+c.merma)}: hay conteos o traslados por corregir.`});
+    for(const x of invDesviacionesDe(r)) alertas.push({fecha:f, bodega:b.nombre, tipo:"Consumo negativo", detalle:`${x.nombre} (#${x.codigo}): ${invFmt(x.consumo)}`});
+    if(c) for(const it of c.sinCosto) alertas.push({fecha:f, bodega:b.nombre, tipo:"Sin costo", detalle:`${it.nombre}${it.codigo?" (#"+it.codigo+")":""}`});
+    for(const it of (r.items||[])){ const q=(invConsumoVista(it)||0)+(+it.merma||0); if(!q) continue;
+      const k=invClaveCosto(it)+"|"+b.codigo; const e=mp[k]||(mp[k]={codigo:it.codigo||"", nombre:it.nombre, cod:b.codigo, venta:invEsVenta(it,r.bodega), unidad:invUnidad(it,r.bodega)||"", cu:invCostoUnit(it), q:0}); e.q+=q; }
+  }
+  const prods=Object.values(mp).map(e=>({...e, q:Math.round(e.q*1000)/1000})).sort((a,c)=>((c.cu||0)*c.q)-((a.cu||0)*a.q));
+  const valor=(INV_CFG.bodegas||[]).map(b=>{
+    const r=regs.filter(x=>x.bodega===b.codigo && x.fecha<=fin).sort((x,y)=>x.fecha<y.fecha?1:-1)[0];
+    const lineas=[]; if(r) for(const it of invOrdenCatalogo(r.bodega, r.items||[])){ const q=Math.round(invFinalVista(it)*1000)/1000; if(!q) continue;
+      lineas.push({codigo:it.codigo||"", nombre:it.nombre, unidad:invUnidad(it,r.bodega)||"", cant:q, cu:invCostoUnit(it), venta:invEsVenta(it,r.bodega)}); }
+    return {cod:b.codigo, fecha:r?r.fecha:null, lineas};
+  });
+  return {ini, fin, bodegas, semanas, prods, valor, alertas, pctOtros:invPctOtros()};
+}
+/* Cálculos sobre el modelo (sin registros). */
+/* Un día sirve para calcular el costo si tiene huéspedes registrados y
+   ninguna bodega del hotel quedó con gasto negativo (señal de conteo o
+   traslado sin corregir, que distorsiona el promedio). */
+function invDiaValido(d, bodegas){ const h=bodegas.filter(b=>!b.rest).map(b=>b.codigo);
+  return d.huespedes>0 && invDiaAprobado(d) && !d.filas.some(x=>h.includes(x.cod) && x.gasto<0); }
+/* Solo información publicada: todas las bodegas del día cerradas y aprobadas. */
+function invDiaAprobado(d){ return d.filas.every(x=>x.aprob===undefined ? x.estado==="Cerrado y aprobado" : x.aprob); }
+function invCalcSemana(s, bodegas){
+  const g={}, pax={}, venta={}, merma={}; let hd=0, dv=0;
+  const hotel=bodegas.filter(b=>!b.rest), rest=bodegas.filter(b=>b.rest), sm=(a,o)=>a.reduce((t,b)=>t+(o[b.codigo]||0),0);
+  for(const d of s.dias){ for(const x of d.filas) venta[x.cod]=(venta[x.cod]||0)+x.venta;
+    if(!invDiaValido(d,bodegas)) continue; dv++; hd+=d.huespedes;
+    for(const x of d.filas){ g[x.cod]=(g[x.cod]||0)+x.gasto; pax[x.cod]=(pax[x.cod]||0)+x.pax; merma[x.cod]=(merma[x.cod]||0)+x.merma; } }
+  const gh=sm(hotel,g), rg=sm(rest,g), rt=sm(rest,pax);
+  return {ini:s.ini, fin:s.fin, hd, dv, g, pax, venta, merma, gastoHotel:gh, cph: hd? gh/hd : null, restGasto:rg, restTickets:rt, cpt: rt? rg/rt : null, ventaTot:sm(bodegas,venta)};
+}
+function invVar(a,b){ if(b===null||b===undefined||!b) return null; if(a===null||a===undefined) return null; return (a-b)/b; }
+function invDiaCorto(f){ try{ return new Date(f+"T12:00:00").toLocaleDateString("es-EC",{weekday:"short",day:"numeric",month:"short"}); }catch(e){ return f; } }
+function invEmailSemanal(M){
+  const B=M.bodegas, hotel=B.filter(b=>!b.rest), rest=B.filter(b=>b.rest);
+  const S=M.semanas.map(s=>invCalcSemana(s,B)), A=S[S.length-1], P=S.length>1?S[S.length-2]:null;
+  const hd4=S.reduce((t,x)=>t+x.hd,0), g4=S.reduce((t,x)=>t+x.gastoHotel,0), prom4=hd4?g4/hd4:null;
+  const PO=M.pctOtros!=null?M.pctOtros:0.35, F=1+PO, pTxt=Math.round(PO*100)+"%", tot=v=>v===null||v===undefined?null:v*F;
+  const td='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px"', tdr='style="padding:6px 8px;border-bottom:1px solid #e5e0d5;font-size:13px;text-align:right"';
+  const th='style="text-align:left;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"', thr='style="text-align:right;padding:6px 8px;border-bottom:2px solid #2a6f77;font-size:12px;color:#5c6b6e"';
+  const tf='style="padding:7px 8px;border-top:2px solid #2a6f77;background:#e6f2f3;font-size:13px"', tfr='style="padding:7px 8px;border-top:2px solid #2a6f77;background:#e6f2f3;font-size:13px;text-align:right"';
+  const pct=v=> v===null ? "—" : `<span style="color:${v>0.10?"#b3261e":v<0?"#2f6b4f":"#5c6b6e"};font-weight:${v>0.10?"bold":"normal"}">${v>0?"+":""}${(v*100).toFixed(1)}%</span>`;
+  const kpi=(t,v,sub)=>`<td style="padding:10px 12px;background:#f5f3ee;border-radius:8px;vertical-align:top;width:33%"><div style="font-size:12px;color:#5c6b6e">${t}</div><div style="font-size:22px;font-weight:bold;color:#1f4e5f">${v}</div><div style="font-size:12px;color:#5c6b6e">${sub}</div></td>`;
+  const filasH=hotel.map(b=>{ const g=A.g[b.codigo]||0, c=A.hd?g/A.hd:null, pc=P&&P.hd?(P.g[b.codigo]||0)/P.hd:null, px=A.pax[b.codigo]||0;
+    return `<tr><td ${td}><b>${b.nombre}</b></td><td ${tdr}>${invDinero(g)}</td><td ${tdr}><b>${invDinero(c)}</b></td><td ${tdr}>${A.gastoHotel?Math.round(100*g/A.gastoHotel)+"%":"—"}</td><td ${tdr}>${pct(invVar(c,pc))}</td><td ${tdr}>${px}</td><td ${tdr}>${px?invDinero(g/px):"—"}</td></tr>`; }).join("");
+  const filasR=rest.map(b=>{ const g=A.g[b.codigo]||0, t=A.pax[b.codigo]||0; return `<tr><td ${td}><b>${b.nombre}</b></td><td ${tdr}>${t}</td><td ${tdr}>${invDinero(g)}</td><td ${tdr}>${t?invDinero(g/t):"sin tickets"}</td></tr>`; }).join("");
+  const dias=M.semanas[M.semanas.length-1].dias.map(d=>{ const gh=d.filas.filter(x=>hotel.some(b=>b.codigo===x.cod)).reduce((t,x)=>t+x.gasto,0); const ok=invDiaValido(d,B); return {d, fecha:d.fecha, hu:d.huespedes, gh, ok, c:ok?gh/d.huespedes:null}; });
+  const maxC=Math.max(0.01,...dias.map(d=>d.c||0));
+  const filasD=dias.map(d=>`<tr${d.ok?"":' style="color:#8a8578"'}><td ${td}>${invDiaCorto(d.fecha)}</td><td ${tdr}>${d.hu||"—"}</td><td ${tdr}>${invDinero(d.gh)}</td><td ${tdr}><b>${d.c===null?"—":invDinero(d.c)}</b></td><td ${td}>${d.ok?`<div style="background:#2a6f77;height:10px;border-radius:3px;width:${Math.round(150*Math.max(0,d.c||0)/maxC)}px"></div>`:`<span style="font-size:11px;color:#8a6512">no se usa: ${!invDiaAprobado(d.d)?"falta aprobación":d.hu?"gasto negativo por corregir":"sin huéspedes registrados"}</span>`}</td></tr>`).join("");
+  const filasS=S.map(x=>`<tr><td ${td}>${x.ini} al ${x.fin}${x.dv<7?` <span style="color:#8a8578;font-size:11px">(${x.dv} de 7 días)</span>`:""}</td><td ${tdr}>${x.hd}</td><td ${tdr}>${invDinero(x.gastoHotel)}</td><td ${tdr}>${invDinero(x.cph)}</td><td ${tdr}><b>${invDinero(tot(x.cph))}</b></td></tr>`).join("");
+  const huProm=A.dv?Math.round(A.hd/A.dv):0, pres=prom4!==null?huProm*30*prom4*F:null;
+  const top=M.prods.filter(p=>!p.venta&&p.cu!==null).slice(0,10);
+  const nomB=c=>(B.find(b=>b.codigo===c)||{}).nombre||c;
+  const filasT=top.map((t,i)=>`<tr><td ${td}>${i+1}. ${t.nombre}</td><td ${td}>${nomB(t.cod)}</td><td ${tdr}>${invFmt(t.q)} ${t.unidad}</td><td ${tdr}><b>${invDinero(t.q*t.cu)}</b></td></tr>`).join("");
+  const vt=M.valor.map(v=>{ let ti=0,ve=0; v.lineas.forEach(l=>{ if(l.cu!==null){ if(l.venta) ve+=l.cant*l.cu; else ti+=l.cant*l.cu; } }); return {v,ti,ve}; });
+  const cuenta={}; M.alertas.forEach(a=>{ cuenta[a.tipo]=(cuenta[a.tipo]||0)+1; });
+  const alertHtml = M.alertas.length ? `<p>${Object.entries(cuenta).map(([k,v])=>`<span style="display:inline-block;background:${/negativo/i.test(k)?"#fde2e1":"#fff3d6"};color:${/negativo/i.test(k)?"#b3261e":"#8a6512"};border-radius:10px;padding:2px 9px;margin:2px;font-size:12px"><b>${v}</b> ${k}</span>`).join(" ")}</p><p style="font-size:12px;color:#5c6b6e">Mientras haya días sin cerrar o con gasto negativo, el costo de la semana no es confiable al 100%. El detalle está en la hoja "Alertas" del Excel.</p>` : `<p style="color:#2f6b4f">Sin alertas: la semana está completa.</p>`;
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a;max-width:900px">
+    <p>Reporte semanal de costos de alimentos y bebidas del <b>${M.ini}</b> al <b>${M.fin}</b>.</p>
+    <p style="background:#e6f2f3;border-radius:8px;padding:10px 12px;margin:8px 0 12px">Responde a: <b>¿cuánto nos cuesta atender a un huésped durante un día en el todo incluido?</b> Ese valor es el que se usa para el presupuesto.</p>
+    <table style="border-collapse:separate;border-spacing:8px 0;margin:0 -8px;width:100%"><tr>
+      ${kpi("Costo total por huésped al día", invDinero(tot(A.cph)), `A&B ${invDinero(A.cph)} + otros ítems ${pTxt} ${invDinero(A.cph===null?null:A.cph*PO)} · ${pct(invVar(A.cph,P&&P.cph))} vs semana anterior`)}
+      ${kpi("Promedio de las últimas "+S.length+" semanas", invDinero(tot(prom4)), `Con otros ítems ${pTxt} · valor sugerido para presupuestar`)}
+      ${kpi("Huéspedes-día de la semana", String(A.hd), `≈ ${huProm} huéspedes por día · ${A.dv} de 7 días con datos completos`)}</tr></table>
+    ${pres!==null?`<p style="margin:12px 0 0">Ejemplo de presupuesto: ${huProm} huéspedes por día × 30 días × ${invDinero(tot(prom4))} = <b>${invDinero(pres)}</b> al mes. En el Excel (hoja "Costo del servicio") puedes cambiar los huéspedes y los días.</p>`:""}
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">¿En qué se va el costo de un huésped?</h3>
+    <table style="border-collapse:collapse;width:100%"><thead><tr><th ${th}>Bodega</th><th ${thr}>Gasto semana</th><th ${thr}>Por huésped al día</th><th ${thr}>% del costo</th><th ${thr}>Var. vs sem. ant.</th><th ${thr}>Personas atendidas</th><th ${thr}>Por persona atendida</th></tr></thead>
+    <tbody>${filasH}<tr style="background:#f5f3ee"><td ${td}><b>Subtotal A&amp;B (inventario)</b></td><td ${tdr}><b>${invDinero(A.gastoHotel)}</b></td><td ${tdr}><b>${invDinero(A.cph)}</b></td><td ${tdr}>100%</td><td ${tdr}>${pct(invVar(A.cph,P&&P.cph))}</td><td ${tdr}></td><td ${tdr}></td></tr>
+    <tr><td ${td}>Otros ítems (+${pTxt})</td><td ${tdr}>${invDinero(A.gastoHotel*PO)}</td><td ${tdr}>${invDinero(A.cph===null?null:A.cph*PO)}</td><td ${tdr}></td><td ${tdr}></td><td ${tdr}></td><td ${tdr}></td></tr></tbody>
+    <tfoot><tr><td ${tf}><b>TOTAL</b></td><td ${tfr}><b>${invDinero(A.gastoHotel*F)}</b></td><td ${tfr}><b>${invDinero(tot(A.cph))}</b></td><td ${tfr}></td><td ${tfr}></td><td ${tfr}></td><td ${tfr}></td></tr></tfoot></table>
+    <p style="color:#5c6b6e;font-size:12px;margin:4px 0 0">Otros ítems = ${pTxt} sobre el costo A&amp;B, por costos del todo incluido que no pasan por el inventario. Solo se usan los días publicados: todas las bodegas cerradas y aprobadas por el Jefe de Operaciones, con huéspedes y sin gasto negativo. Huéspedes del día = el servicio con más personas registradas en Cocina Central. "Por persona atendida" = gasto de la bodega ÷ personas registradas en sus servicios (una persona que desayuna y almuerza cuenta 2 veces).</p>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">Día por día (costo A&amp;B, sin otros ítems)</h3>
+    <table style="border-collapse:collapse;width:100%;max-width:640px"><thead><tr><th ${th}>Día</th><th ${thr}>Huéspedes</th><th ${thr}>Gasto hotel</th><th ${thr}>Por huésped</th><th ${th}></th></tr></thead><tbody>${filasD}</tbody></table>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">Últimas ${S.length} semanas</h3>
+    <table style="border-collapse:collapse;width:100%;max-width:720px"><thead><tr><th ${th}>Semana</th><th ${thr}>Huéspedes-día</th><th ${thr}>Gasto hotel</th><th ${thr}>A&amp;B por huésped</th><th ${thr}>Total (+${pTxt})</th></tr></thead><tbody>${filasS}</tbody>
+    <tfoot><tr><td ${tf}><b>Promedio</b></td><td ${tfr}>${hd4}</td><td ${tfr}>${invDinero(g4)}</td><td ${tfr}>${invDinero(prom4)}</td><td ${tfr}><b>${invDinero(tot(prom4))}</b></td></tr></tfoot></table>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">La Almeja Playera (aparte, no entra en el costo del hotel)</h3>
+    <table style="border-collapse:collapse;width:100%;max-width:640px"><thead><tr><th ${th}>Bodega</th><th ${thr}>Tickets</th><th ${thr}>Gasto</th><th ${thr}>Costo por ticket</th></tr></thead><tbody>${filasR}</tbody>
+    <tfoot><tr><td ${tf}><b>Total</b></td><td ${tfr}><b>${A.restTickets}</b></td><td ${tfr}><b>${invDinero(A.restGasto)}</b></td><td ${tfr}>${A.cpt===null?"—":invDinero(A.cpt)}</td></tr></tfoot></table>
+    <p style="margin:12px 0 0"><b style="color:#5b3a8c">Productos de venta (facturado):</b> ${invDinero(A.ventaTot)} en la semana. No forman parte del costo del todo incluido.</p>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">Los 10 productos que más pesan en el costo</h3>
+    <table style="border-collapse:collapse;width:100%"><thead><tr><th ${th}>Producto</th><th ${th}>Bodega</th><th ${thr}>Cantidad</th><th ${thr}>Gasto</th></tr></thead><tbody>${filasT}</tbody></table>
+    <h3 style="margin:18px 0 4px;font-size:15px;color:#1f4e5f">Valor del inventario en bodegas al ${M.fin}</h3>
+    <p style="margin:0">Todo incluido <b>${invDinero(vt.reduce((t,x)=>t+x.ti,0))}</b> · Venta <b>${invDinero(vt.reduce((t,x)=>t+x.ve,0))}</b> · Total <b>${invDinero(vt.reduce((t,x)=>t+x.ti+x.ve,0))}</b> (detalle por bodega y producto en el Excel).</p>
+    <h3 style="margin:18px 0 4px;font-size:15px">Calidad de los datos de la semana</h3>${alertHtml}
+    <p style="color:#8a8578;font-size:12px;margin-top:14px">Gasto = (lo consumido + la merma) × costo promedio de Zeus, solo productos todo incluido. Reporte automático de Inventario A&amp;B.</p></div>`;
+}
+/* Gráficos para el Excel semanal: se dibujan como SVG y se pasan a PNG con el
+   navegador (ExcelJS no crea gráficos nativos de Excel). */
+function invSvgEsc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+const INV_G = {W:450, H:250, azul:"#2a6f77", oscuro:"#1f4e5f", gris:"#cfcabd", txt:"#2a2a2a", sub:"#6b7478", acento:"#d9822b", fondo:"#ffffff"};
+function invSvgMarco(t, sub, cuerpo){ const G=INV_G;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${G.W}" height="${G.H}" viewBox="0 0 ${G.W} ${G.H}" font-family="Arial, Helvetica, sans-serif">
+  <rect x="0.5" y="0.5" width="${G.W-1}" height="${G.H-1}" rx="8" fill="${G.fondo}" stroke="#e2ddd2"/>
+  <text x="14" y="22" font-size="13" font-weight="bold" fill="${G.oscuro}">${invSvgEsc(t)}</text>
+  <text x="14" y="38" font-size="10" fill="${G.sub}">${invSvgEsc(sub)}</text>${cuerpo}</svg>`; }
+/* Barras verticales. items: {label, value, color?, nota?} ; ref: {value, label} línea punteada */
+function invSvgBarrasV(t, sub, items, fmt, ref){ const G=INV_G, m={l:14,r:14,t:58,b:36}, pw=G.W-m.l-m.r, ph=G.H-m.t-m.b;
+  const max=Math.max(1e-9,...items.map(i=>Math.max(0,i.value||0)), ref&&ref.value?ref.value:0)*1.18;
+  const bw=pw/Math.max(1,items.length); let c="";
+  items.forEach((it,i)=>{ const v=Math.max(0,it.value||0), h=it.value==null?0:ph*v/max, w=Math.min(46,bw*0.62), x=m.l+i*bw+(bw-w)/2, y=m.t+ph-h, cx=m.l+i*bw+bw/2;
+    if(it.value==null){ c+=`<text x="${cx}" y="${m.t+ph-6}" font-size="9" text-anchor="middle" fill="${G.sub}">${invSvgEsc(it.nota||"sin dato")}</text>`; }
+    else { c+=`<rect x="${x}" y="${y}" width="${w}" height="${Math.max(1,h)}" rx="3" fill="${it.color||G.azul}"/><text x="${cx}" y="${y-5}" font-size="10" font-weight="bold" text-anchor="middle" fill="${G.txt}">${invSvgEsc(fmt(it.value))}</text>`; }
+    String(it.label).split("\n").forEach((ln,k)=>{ c+=`<text x="${cx}" y="${m.t+ph+14+k*11}" font-size="9.5" text-anchor="middle" fill="${G.sub}">${invSvgEsc(ln)}</text>`; });
+  });
+  c+=`<line x1="${m.l}" y1="${m.t+ph}" x2="${G.W-m.r}" y2="${m.t+ph}" stroke="#bdb7aa"/>`;
+  if(ref && ref.value){ const y=m.t+ph-ph*ref.value/max; c+=`<line x1="${m.l}" y1="${y}" x2="${G.W-m.r}" y2="${y}" stroke="${G.acento}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${G.W-m.r}" y="${y-4}" font-size="9.5" font-weight="bold" text-anchor="end" fill="${G.acento}" stroke="#ffffff" stroke-width="3" paint-order="stroke">${invSvgEsc(ref.label)}</text>`; }
+  return invSvgMarco(t, sub, c); }
+/* Barras horizontales. items: {label, value, texto?, color?} */
+function invSvgBarrasH(t, sub, items, fmt){ const G=INV_G, m={l:168,r:78,t:50,b:10}, pw=G.W-m.l-m.r, ph=G.H-m.t-m.b;
+  const max=Math.max(1e-9,...items.map(i=>Math.max(0,i.value||0))); const rh=ph/Math.max(1,items.length), bh=Math.min(18,rh*0.68); let c="";
+  items.forEach((it,i)=>{ const y=m.t+i*rh+(rh-bh)/2, w=Math.max(1,pw*Math.max(0,it.value||0)/max); const lab=String(it.label); const corto=lab.length>27?lab.slice(0,26)+"…":lab;
+    c+=`<text x="${m.l-8}" y="${y+bh/2+3.5}" font-size="9.5" text-anchor="end" fill="${G.txt}">${invSvgEsc(corto)}</text>`;
+    c+=`<rect x="${m.l}" y="${y}" width="${w}" height="${bh}" rx="3" fill="${it.color||G.azul}"/>`;
+    c+=`<text x="${m.l+w+5}" y="${y+bh/2+3.5}" font-size="9.5" font-weight="bold" fill="${G.txt}">${invSvgEsc(it.texto||fmt(it.value))}</text>`; });
+  return invSvgMarco(t, sub, c); }
+async function invSvgAPng(svg){ const G=INV_G;
+  if(typeof INV_SVG2PNG==="function") return INV_SVG2PNG(svg, G.W, G.H);
+  const img=new Image(); await new Promise((ok,ko)=>{ img.onload=ok; img.onerror=()=>ko(new Error("svg")); img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg); });
+  const cv=document.createElement("canvas"); cv.width=G.W*2; cv.height=G.H*2; const x=cv.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,cv.width,cv.height); x.drawImage(img,0,0,cv.width,cv.height);
+  return cv.toDataURL("image/png").split(",")[1]; }
+async function invExcelSemanal(M){
+  const EJ = await invCargarExcelJS();
+  const B=M.bodegas, hotel=B.filter(b=>!b.rest), rest=B.filter(b=>b.rest), nomB=c=>(B.find(b=>b.codigo===c)||{}).nombre||c;
+  const S=M.semanas.map(s=>invCalcSemana(s,B)), A=S[S.length-1], semA=M.semanas[M.semanas.length-1];
+  const wb = new EJ.Workbook(); wb.creator="Inventario A&B · Playa Paraíso"; wb.created=new Date(); wb.calcProperties={fullCalcOnLoad:true};
+  const fill=argb=>({type:"pattern",pattern:"solid",fgColor:{argb}});
+  const sub=`Semana del ${M.ini} al ${M.fin} · Costos: costo promedio de Zeus · Generado ${fmtDT(new Date().toISOString())}`;
+  const hoja=(nom,tab)=>wb.addWorksheet(nom,{views:[{showGridLines:false}],properties:tab?{tabColor:{argb:tab}}:{},pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
+  const nueva=(nom,cols,titulo)=>{ const ws=wb.addWorksheet(nom,{views:[{state:"frozen",ySplit:4,showGridLines:false}],pageSetup:{orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0}});
+    xlTitulo(ws,titulo,sub,cols.length); xlEncabezado(ws,4,cols); return ws; };
+  const totalRow=(ws,f,cols,vals)=>{ const t=xlFila(ws,f,cols,vals,{bg:XL.azulClaro,bold:true}); t.eachCell(c=>{ c.border={top:{style:"medium",color:{argb:XL.azul}},bottom:{style:"medium",color:{argb:XL.azul}}}; }); t.height=22; return t; };
+  const q=s=>"'"+s.replace(/'/g,"''")+"'";
+  // ---------- Detalle diario (la base) ----------
+  const colsDet=[{h:"Fecha",w:12,al:"center"},{h:"Bodega",w:28},{h:"Grupo",w:18},{h:"Estado del día",w:20},{h:"Personas atendidas / tickets",w:13,fmt:"#,##0",al:"center"},{h:"Gasto (consumo + merma)",w:15,fmt:XL.dinero},{h:"De eso, merma",w:12,fmt:XL.dinero},{h:"Gasto por persona atendida",w:14,fmt:XL.dinero},{h:"Venta (facturado)",w:14,fmt:XL.dinero},{h:"¿Día usado para el costo?",w:12,al:"center"}];
+  // ---------- Día por día ----------
+  const colsDia=[{h:"Fecha",w:12,al:"center"},{h:"Día",w:14},{h:"Huéspedes del día (estimado)",w:15,fmt:"#,##0",al:"center"},{h:"Gasto todo incluido hotel",w:16,fmt:XL.dinero},{h:"Costo por huésped",w:15,fmt:XL.dinero},{h:"Gasto La Almeja",w:14,fmt:XL.dinero},{h:"Tickets La Almeja",w:12,fmt:"#,##0",al:"center"},{h:"Costo por ticket",w:14,fmt:XL.dinero},{h:"¿Se usa para el costo?",w:13,al:"center"}];
+  // ---------- Últimas semanas ----------
+  const colsSem=[{h:"Semana",w:26},{h:"Días con datos completos",w:11,al:"center"},{h:"Huéspedes-día",w:13,fmt:"#,##0",al:"center"},...hotel.map(b=>({h:"Gasto "+b.nombre.toLowerCase(),w:15,fmt:XL.dinero})),{h:"Gasto total hotel",w:15,fmt:XL.dinero},{h:"Costo por huésped al día",w:15,fmt:XL.dinero}];
+  const wsC=hoja("Costo del servicio",XL.azul), wsDia=nueva("Día por día",colsDia,"Costo del servicio — día por día"), wsSem=nueva("Últimas semanas",colsSem,`Costo del servicio — últimas ${S.length} semanas`),
+        wsDet=nueva("Detalle por bodega",colsDet,"Detalle diario por bodega");
+  // Detalle
+  let f=5; const d0=f; const nDias=semA.dias.length;
+  const y0=5, y1=y0+nDias-1; // filas de "Día por día"
+  for(const d of semA.dias) for(const x of d.filas){ const b=B.find(y=>y.codigo===x.cod)||{nombre:x.cod};
+    xlFila(wsDet,f,colsDet,[d.fecha,b.nombre,b.rest?"La Almeja Playera":"Hotel",x.estado,x.pax,x.gasto,x.merma,xlF(`IFERROR(F${f}/E${f},"")`,x.pax?x.gasto/x.pax:""),x.venta,
+      xlF(`IF(COUNTIFS(${q("Día por día")}!$A$${y0}:$A$${y1},A${f},${q("Día por día")}!$I$${y0}:$I$${y1},"Sí")>0,"Sí","No")`, invDiaValido(d,B)?"Sí":"No")],
+      x.estado==="Sin registro"?{color:"FF8A8578"}:(x.gasto<0||x.estado==="Sin cerrar"?{bg:XL.amarillo,color:XL.amarilloTxt}:null)); f++; }
+  const d1=f-1; wsDet.autoFilter={from:{row:4,column:1},to:{row:d1,column:colsDet.length}};
+  const rDet=L=>`${q("Detalle por bodega")}!$${L}$${d0}:$${L}$${d1}`;
+  // Día por día (las columnas C–H solo cuentan si el día se usa; I dice si se usa)
+  f=y0;
+  for(const d of semA.dias){ const ok=invDiaValido(d,B);
+    const gh=d.filas.filter(x=>hotel.some(b=>b.codigo===x.cod)).reduce((t,x)=>t+x.gasto,0);
+    xlFila(wsDia,f,colsDia,[d.fecha,invDiaCorto(d.fecha),d.huespedes,
+      xlF(`SUMIFS(${rDet("F")},${rDet("A")},A${f},${rDet("C")},"Hotel")`, gh),
+      xlF(`IF(I${f}="Sí",IFERROR(D${f}/C${f},""),"")`, ok?gh/d.huespedes:""),
+      xlF(`SUMIFS(${rDet("F")},${rDet("A")},A${f},${rDet("C")},"La Almeja Playera")`, null),
+      xlF(`SUMIFS(${rDet("E")},${rDet("A")},A${f},${rDet("C")},"La Almeja Playera")`, null),
+      xlF(`IFERROR(F${f}/G${f},"")`, null),
+      xlF(`IF(AND(C${f}>0,COUNTIFS(${rDet("A")},A${f},${rDet("C")},"Hotel",${rDet("F")},"<0")=0,COUNTIFS(${rDet("A")},A${f},${rDet("D")},"<>Cerrado y aprobado")=0),"Sí","No")`, ok?"Sí":"No")],
+      ok?null:{color:"FF8A8578"}); f++; }
+  totalRow(wsDia,f,colsDia,["SEMANA","(días usados)",xlF(`SUMIFS(C${y0}:C${y1},I${y0}:I${y1},"Sí")`,A.hd),xlF(`SUMIFS(D${y0}:D${y1},I${y0}:I${y1},"Sí")`,A.gastoHotel),xlF(`IFERROR(D${f}/C${f},"")`,A.cph),
+    xlF(`SUMIFS(F${y0}:F${y1},I${y0}:I${y1},"Sí")`,A.restGasto),xlF(`SUMIFS(G${y0}:G${y1},I${y0}:I${y1},"Sí")`,A.restTickets),xlF(`IFERROR(F${f}/G${f},"")`,A.cpt),xlF(`COUNTIF(I${y0}:I${y1},"Sí")&" de ${nDias}"`,`${A.dv} de ${nDias}`)]);
+  const filaTotDia=f;
+  const notaDia=wsDia.getCell(f+2,1); wsDia.mergeCells(f+2,1,f+3,colsDia.length);
+  notaDia.value="Huéspedes del día (estimado) = el servicio con más personas registradas en Cocina Central ese día. Costo por huésped = gasto del hotel ÷ huéspedes. Un día NO se usa si alguna bodega no quedó cerrada y APROBADA por el Jefe de Operaciones (solo información publicada), si no tiene huéspedes registrados o si alguna bodega del hotel quedó con gasto negativo (conteo o traslado por corregir).";
+  notaDia.font={italic:true,size:9,color:{argb:"FF5C6B6E"}}; notaDia.alignment={wrapText:true,vertical:"top"}; wsDia.getRow(f+2).height=20;
+  // Últimas semanas: A semana · B días usados · C huéspedes-día · gastos por bodega · total · costo por huésped
+  f=5; const s0=f; const nH=hotel.length, colTot=4+nH, L=n=>String.fromCharCode(64+n);
+  for(const x of S){ const vals=[`${x.ini} al ${x.fin}`, x.dv, x.hd, ...hotel.map(b=>x.g[b.codigo]||0)];
+    vals.push(xlF(`SUM(D${f}:${L(3+nH)}${f})`, x.gastoHotel)); vals.push(xlF(`IFERROR(${L(colTot)}${f}/C${f},"")`, x.cph));
+    xlFila(wsSem,f,colsSem,vals, x===A?{bold:true}:(x.dv<5?{color:"FF8A6512"}:null)); f++; }
+  const s1=f-1;
+  totalRow(wsSem,f,colsSem,["PROMEDIO / TOTAL",xlF(`SUM(B${s0}:B${s1})`,null),xlF(`SUM(C${s0}:C${s1})`,null),...hotel.map((b,i)=>xlF(`SUM(${L(4+i)}${s0}:${L(4+i)}${s1})`,null)),xlF(`SUM(${L(colTot)}${s0}:${L(colTot)}${s1})`,null),xlF(`IFERROR(${L(colTot)}${f}/C${f},"")`,null)]);
+  const filaPromSem=f;
+  const notaSem=wsSem.getCell(f+2,1); wsSem.mergeCells(f+2,1,f+2,colsSem.length);
+  notaSem.value="Cada semana usa solo sus días con datos completos. El promedio se calcula con el gasto y los huéspedes de todas las semanas juntas (no es el promedio de los promedios)."; notaSem.font={italic:true,size:9,color:{argb:"FF5C6B6E"}};
+  // ---------- Hoja principal: Costo del servicio ----------
+  const ws=wsC; [36,16,16,14,14,14,16].forEach((w,i)=>ws.getColumn(i+1).width=w);
+  xlTitulo(ws,"¿Cuánto cuesta atender a un huésped por día?",sub,7);
+  f=4;
+  const caja=(txt,bg,h)=>{ ws.mergeCells(f,1,f,7); const c=ws.getCell(f,1); c.value=txt; c.alignment={wrapText:true,vertical:"middle",indent:1}; c.fill=fill(bg||XL.azulClaro); c.font={size:10,color:{argb:"FF1F4E5F"}}; ws.getRow(f).height=h||34; f++; };
+  const seccion=t=>{ f++; ws.mergeCells(f,1,f,7); const c=ws.getCell(f,1); c.value=t; c.font={bold:true,size:12,color:{argb:XL.azul}}; c.border={bottom:{style:"medium",color:{argb:XL.azul}}}; ws.getRow(f).height=22; f++; };
+  const kv=(label,val,fmt,opt)=>{ const a=ws.getCell(f,1), b=ws.getCell(f,2); a.value=label; a.font={bold:!!(opt&&opt.bold),size:opt&&opt.big?12:10}; b.value=val; b.numFmt=fmt||XL.dinero; b.alignment={horizontal:"right"};
+    b.font={bold:true,size:opt&&opt.big?14:11,color:{argb:opt&&opt.input?"FF8A6512":XL.azul}}; if(opt&&opt.input){ b.fill=fill(XL.amarillo); b.border={top:{style:"thin",color:{argb:"FFE0C36A"}},bottom:{style:"thin",color:{argb:"FFE0C36A"}},left:{style:"thin",color:{argb:"FFE0C36A"}},right:{style:"thin",color:{argb:"FFE0C36A"}}}; }
+    if(opt&&opt.nota){ ws.mergeCells(f,3,f,7); const n=ws.getCell(f,3); n.value=opt.nota; n.font={size:9,italic:true,color:{argb:"FF5C6B6E"}}; n.alignment={wrapText:true,vertical:"middle",indent:1}; }
+    ws.getRow(f).height=opt&&opt.big?24:(opt&&opt.nota&&opt.nota.length>70?28:18); return f++; };
+  caja("Este archivo responde una sola pregunta: ¿cuánto nos cuesta, en alimentos y bebidas del todo incluido, atender a un huésped durante un día? Ese valor, multiplicado por los huéspedes esperados y los días, es el presupuesto de A&B.",XL.azulClaro,44);
+  seccion("1. Resultado de la semana");
+  const DIA=q("Día por día"), SEM=q("Últimas semanas");
+  const rHu=kv("Huéspedes-día de la semana", xlF(`${DIA}!C${filaTotDia}`,A.hd), "#,##0", {nota:`Suma de los huéspedes de cada día (un huésped que se queda 3 días cuenta 3). Días con datos completos: ${A.dv} de 7.`});
+  const rGa=kv("Gasto todo incluido del hotel", xlF(`${DIA}!D${filaTotDia}`,A.gastoHotel), XL.dinero, {nota:"Lo consumido + la merma, valorizado al costo de Zeus. No incluye La Almeja ni productos de venta."});
+  const PO=M.pctOtros!=null?M.pctOtros:0.35, FO=1+PO;
+  const rCo=kv("Costo A&B por huésped al día (inventario)", xlF(`IFERROR(B${rGa}/B${rHu},"")`,A.cph), XL.dinero, {bold:true});
+  const rPc=kv("Incremento por otros ítems", PO, "0%", {input:true,nota:"Otros costos del todo incluido que no pasan por el inventario. Puedes cambiar el porcentaje."});
+  const rOt=kv("Otros ítems", xlF(`IFERROR(B${rCo}*B${rPc},"")`,A.cph===null?null:A.cph*PO), XL.dinero);
+  const rCT=kv("COSTO TOTAL POR HUÉSPED AL DÍA", xlF(`IFERROR(B${rCo}+B${rOt},"")`,A.cph===null?null:A.cph*FO), XL.dinero, {bold:true,big:true});
+  const P=S.length>1?S[S.length-2]:null;
+  const rAn=kv("Semana anterior (total)", xlF(`IFERROR(${SEM}!${L(colTot+1)}${s1-1}*(1+B${rPc}),"")`,P&&P.cph!==null?P.cph*FO:null), XL.dinero);
+  kv("Variación vs semana anterior", xlF(`IFERROR(B${rCT}/B${rAn}-1,"")`,null), '+0.0%;[Red]-0.0%;0.0%');
+  const rPr=kv(`Promedio de las últimas ${S.length} semanas (total)`, xlF(`IFERROR(${SEM}!${L(colTot+1)}${filaPromSem}*(1+B${rPc}),"")`,null), XL.dinero, {bold:true,nota:"Más estable que una sola semana: es el valor sugerido para presupuestar."});
+  const rMx=kv(`Semana más cara de las últimas ${S.length} (total)`, xlF(`MAX(${SEM}!${L(colTot+1)}${s0}:${L(colTot+1)}${s1})*(1+B${rPc})`,null), XL.dinero);
+  // ---- Gráficos (2 × 2) ----
+  try{
+    const din=v=>"$"+(Math.round(v*100)/100).toFixed(2);
+    const g4=S.reduce((t,x)=>t+x.gastoHotel,0), h4=S.reduce((t,x)=>t+x.hd,0), prom=h4?g4/h4:null;
+    const corta=f=>{ const d=new Date(f+"T12:00:00"); return d.getDate()+"/"+(d.getMonth()+1); };
+    const pT=Math.round(PO*100)+"%", t=v=>v===null||v===undefined?null:v*FO;
+    const gA=invSvgBarrasV("Costo total por huésped al día", `Últimas ${S.length} semanas · incluye +${pT} otros ítems · línea: promedio`, S.map((x,i)=>({label:`${corta(x.ini)} al\n${corta(x.fin)}`, value:t(x.cph), color:i===S.length-1?INV_G.oscuro:INV_G.azul})), din, prom?{value:prom*FO,label:"Promedio "+din(prom*FO)}:null);
+    const gB=invSvgBarrasV("Costo total por huésped, día por día", `Semana del ${corta(M.ini)} al ${corta(M.fin)} · incluye +${pT} otros ítems`, semA.dias.map(d=>{ const ok=invDiaValido(d,B); const gh=d.filas.filter(x=>hotel.some(b=>b.codigo===x.cod)).reduce((t,x)=>t+x.gasto,0);
+        return {label:invDiaCorto(d.fecha).replace(/,\s*/," \n").replace(/\s+de\s+/," "), value: ok? gh/d.huespedes*FO : null, nota: !invDiaAprobado(d)?"sin aprobar":d.huespedes?"no se usa":"sin huéspedes"}; }), din, A.cph?{value:A.cph*FO,label:"Semana "+din(A.cph*FO)}:null);
+    const dist=hotel.map(b=>({b, v:A.hd?(A.g[b.codigo]||0)/A.hd:0})).sort((a,c)=>c.v-a.v);
+    const ctot=(A.cph||0)*FO; const distT=[...dist.map(x=>({label:x.b.nombre, value:x.v})), {label:`OTROS ÍTEMS (+${pT})`, value:(A.cph||0)*PO, color:INV_G.acento}].sort((a,c)=>c.value-a.value);
+    const gC=invSvgBarrasH("¿En qué se va el costo de un huésped?", `Por huésped al día · total ${din(ctot)}`, distT.map(x=>({...x, texto:`${din(x.value)} · ${ctot?Math.round(100*x.value/ctot):0}%`})), din);
+    const top=M.prods.filter(p=>!p.venta&&p.cu!==null&&p.q>0).slice(0,8);
+    const gD=invSvgBarrasH("Productos que más pesan en el costo", "Gasto de la semana (todo incluido)", top.map(p=>({label:p.nombre, value:p.q*p.cu})), din);
+    f++; const r0=f; for(let k=0;k<21;k++) ws.getRow(r0+k).height=20;
+    const pos=[[0,r0-1],[3,r0-1],[0,r0+9],[3,r0+9]];
+    const svgs=[gA,gB,gC,gD];
+    for(let k=0;k<4;k++){ const b64=await invSvgAPng(svgs[k]); const id=wb.addImage({base64:b64, extension:"png"}); ws.addImage(id,{tl:{col:pos[k][0],row:pos[k][1]}, ext:{width:INV_G.W,height:INV_G.H}}); }
+    f=r0+21;
+  }catch(e){ /* si el navegador no puede dibujar, el Excel sale igual sin gráficos */ }
+  seccion("2. ¿En qué se va el costo de un huésped? (semana)");
+  const hdr=["Bodega","Gasto (días usados)","Por huésped al día","% del costo","Personas atendidas","Por persona atendida",`Por huésped (prom. ${S.length} sem.)`];
+  hdr.forEach((h,i)=>{ const c=ws.getCell(f,1+i); c.value=h; c.font={bold:true,color:{argb:"FFFFFFFF"},size:10}; c.fill=fill(XL.azul); c.alignment={horizontal:i?"center":"left",vertical:"middle",wrapText:true,indent:i?0:1}; }); ws.getRow(f).height=30; f++;
+  const b0=f;
+  hotel.forEach((b,i)=>{ const nom=b.nombre.replace(/"/g,'""'), g=A.g[b.codigo]||0, px=A.pax[b.codigo]||0;
+    const cols=[{},{fmt:XL.dinero},{fmt:XL.dinero},{fmt:"0%",al:"center"},{fmt:"#,##0",al:"center"},{fmt:XL.dinero},{fmt:XL.dinero}];
+    xlFila(ws,f,cols,[b.nombre, xlF(`SUMIFS(${rDet("F")},${rDet("B")},"${nom}",${rDet("J")},"Sí")`,g), xlF(`IFERROR(B${f}/$B$${rHu},"")`,A.hd?g/A.hd:""), null, xlF(`SUMIFS(${rDet("E")},${rDet("B")},"${nom}",${rDet("J")},"Sí")`,px), xlF(`IFERROR(B${f}/E${f},"")`,px?g/px:""),
+      xlF(`IFERROR(${SEM}!${L(4+i)}${filaPromSem}/${SEM}!C${filaPromSem},"")`,null)]); ws.getCell(f,1).font={bold:true}; f++; });
+  const b1=f-1; for(let r=b0;r<=b1;r++){ const c=ws.getCell(r,4); c.value=xlF(`IFERROR(B${r}/B$${b1+1},"")`,null); /* % sobre el subtotal A&B */ }
+  const cT=[{},{fmt:XL.dinero},{fmt:XL.dinero},{fmt:"0%",al:"center"},{},{},{fmt:XL.dinero}];
+  const rSub=f; xlFila(ws,f,cT,["Subtotal A&B (inventario)",xlF(`SUM(B${b0}:B${b1})`,A.gastoHotel),xlF(`SUM(C${b0}:C${b1})`,A.cph),xlF(`SUM(D${b0}:D${b1})`,1),"","",xlF(`SUM(G${b0}:G${b1})`,null)],{bg:XL.gris,bold:true});
+  ws.getRow(f).eachCell(c=>{ c.border={top:{style:"thin",color:{argb:XL.azul}}}; }); f++;
+  const rOtr=f; xlFila(ws,f,cT,[xlF(`"Otros ítems (+"&TEXT($B$${rPc},"0%")&")"`,`Otros ítems (+${Math.round(PO*100)}%)`),xlF(`B${rSub}*$B$${rPc}`,A.gastoHotel*PO),xlF(`IFERROR(C${rSub}*$B$${rPc},"")`,A.cph===null?null:A.cph*PO),"","","",xlF(`IFERROR(G${rSub}*$B$${rPc},"")`,null)],{bg:"FFFCEBD9",color:"FF8A4B12"}); f++;
+  totalRow(ws,f,cT,["TOTAL",xlF(`B${rSub}+B${rOtr}`,A.gastoHotel*FO),xlF(`IFERROR(C${rSub}+C${rOtr},"")`,A.cph===null?null:A.cph*FO),"","","",xlF(`IFERROR(G${rSub}+G${rOtr},"")`,null)]); f++;
+  const nt=ws.getCell(f,1); ws.mergeCells(f,1,f,7); nt.value="Por huésped al día = gasto de la bodega ÷ huéspedes-día (la suma de las bodegas da el subtotal A&B; el total suma los otros ítems). % del costo = sobre el subtotal A&B. Por persona atendida = gasto ÷ personas registradas en los servicios de esa bodega: una persona que desayuna y almuerza cuenta 2 veces.";
+  nt.font={size:9,italic:true,color:{argb:"FF5C6B6E"}}; nt.alignment={wrapText:true}; ws.getRow(f).height=30; f++;
+  seccion("3. Calculadora de presupuesto (cambia las celdas amarillas)");
+  const rH=kv("Huéspedes promedio por día", A.dv?Math.round(A.hd/A.dv):0, "#,##0", {input:true,nota:"Ocupación esperada en personas (adultos + niños)."});
+  const rD=kv("Días del período", 30, "#,##0", {input:true,nota:"30 para un mes, 365 para un año."});
+  const rC=kv("Costo total por huésped al día a usar", xlF(`B${rPr}`,null), XL.dinero, {input:true,nota:`Por defecto el promedio de ${S.length} semanas, ya con otros ítems. Puedes escribir otro valor.`});
+  kv("Presupuesto todo incluido (A&B + otros ítems)", xlF(`B${rH}*B${rD}*B${rC}`,null), XL.dinero, {bold:true,big:true});
+  kv("Presupuesto conservador (semana más cara)", xlF(`B${rH}*B${rD}*B${rMx}`,null), XL.dinero, {nota:"Si se quiere un margen de seguridad."});
+  seccion("4. La Almeja Playera (aparte: es restaurante con tickets)");
+  ["Bodega","Tickets","Gasto","Costo por ticket"].forEach((h,i)=>{ const c=ws.getCell(f,1+i); c.value=h; c.font={bold:true,color:{argb:"FFFFFFFF"},size:10}; c.fill=fill(XL.azul); c.alignment={horizontal:i?"center":"left",indent:i?0:1}; }); f++;
+  const a0=f; const colsA=[{},{fmt:"#,##0",al:"center"},{fmt:XL.dinero},{fmt:XL.dinero}];
+  rest.forEach(b=>{ const nom=b.nombre.replace(/"/g,'""'), g=A.g[b.codigo]||0, t=A.pax[b.codigo]||0;
+    xlFila(ws,f,colsA,[b.nombre, xlF(`SUMIFS(${rDet("E")},${rDet("B")},"${nom}",${rDet("J")},"Sí")`,t), xlF(`SUMIFS(${rDet("F")},${rDet("B")},"${nom}",${rDet("J")},"Sí")`,g), xlF(`IFERROR(C${f}/B${f},"")`,t?g/t:"")]); f++; });
+  totalRow(ws,f,colsA,["TOTAL LA ALMEJA PLAYERA",xlF(`SUM(B${a0}:B${f-1})`,A.restTickets),xlF(`SUM(C${a0}:C${f-1})`,A.restGasto),xlF(`IFERROR(C${f}/B${f},"")`,A.cpt)]); f++;
+  seccion("5. Fuera del costo");
+  kv("Productos de venta (facturado)", xlF(`SUM(${rDet("I")})`,A.ventaTot), XL.dinero, {nota:"Se cobran aparte al huésped; no se suman al costo del todo incluido."});
+  const nAl=M.alertas.length, nGr=M.alertas.filter(a=>/Sin cerrar|negativo|Sin registro/.test(a.tipo)).length;
+  f++; caja(nAl?`Calidad de los datos: ${nAl} alertas en la semana (${nGr} de días sin registrar, sin cerrar o con gasto/consumo negativo). Mientras existan, el costo puede estar incompleto. Ver hoja "Alertas".`:"Calidad de los datos: semana completa, sin alertas.", nGr?XL.amarillo:XL.verde, 32);
+  ws.pageSetup.printArea=`A1:G${f}`;
+  // ---------- Consumo por producto ----------
+  const colsP=[{h:"Código",w:10,al:"center"},{h:"Producto",w:38,wrap:true},{h:"Bodega",w:24},{h:"Tipo",w:14,al:"center"},{h:"Unidad",w:10,al:"center"},{h:"Consumo + merma semana",w:13,fmt:XL.cant},{h:"Costo unitario",w:13,fmt:XL.cu},{h:"Gasto",w:14,fmt:XL.dinero}];
+  const wsP=nueva("Consumo por producto",colsP,"Consumo de la semana por producto (de mayor a menor gasto)");
+  f=5; const p0=f;
+  for(const e of M.prods){ xlFila(wsP,f,colsP,[e.codigo,e.nombre,nomB(e.cod),e.venta?"Venta":"Todo incluido",e.unidad,e.q,e.cu,e.cu===null?null:xlF(`F${f}*G${f}`,e.q*e.cu)], e.venta?{bg:"FFEDE7F6",color:"FF5B3A8C"}:(e.cu===null?{bg:XL.amarillo,color:XL.amarilloTxt}:null)); f++; }
+  const p1=f-1;
+  if(p1>=p0){ wsP.autoFilter={from:{row:4,column:1},to:{row:p1,column:colsP.length}};
+    totalRow(wsP,f,colsP,["","TOTAL TODO INCLUIDO","","","","","",xlF(`SUMIF(D${p0}:D${p1},"Todo incluido",H${p0}:H${p1})`,null)]);
+    totalRow(wsP,f+1,colsP,["","TOTAL VENTA (FACTURADO)","","","","","",xlF(`SUMIF(D${p0}:D${p1},"Venta",H${p0}:H${p1})`,null)]); }
+  // ---------- Inventario valorizado ----------
+  const colsV=[{h:"Bodega",w:26},{h:"Código",w:10,al:"center"},{h:"Producto",w:38,wrap:true},{h:"Tipo",w:14,al:"center"},{h:"Unidad",w:10,al:"center"},{h:"Existencia",w:12,fmt:XL.cant},{h:"Costo unitario",w:13,fmt:XL.cu},{h:"Valor",w:14,fmt:XL.dinero}];
+  const wsV=nueva("Inventario valorizado",colsV,`Valor del inventario en bodegas al ${M.fin}`);
+  f=5; const v0=f;
+  for(const v of M.valor) for(const l of v.lineas){
+    xlFila(wsV,f,colsV,[nomB(v.cod)+(v.fecha&&v.fecha!==M.fin?` (al ${v.fecha})`:""),l.codigo,l.nombre,l.venta?"Venta":"Todo incluido",l.unidad,l.cant,l.cu,l.cu===null?null:xlF(`F${f}*G${f}`,l.cant*l.cu)], l.venta?{bg:"FFEDE7F6",color:"FF5B3A8C"}:(l.cu===null?{bg:XL.amarillo,color:XL.amarilloTxt}:null)); f++; }
+  const v1=f-1;
+  if(v1>=v0){ wsV.autoFilter={from:{row:4,column:1},to:{row:v1,column:colsV.length}};
+    totalRow(wsV,f,colsV,["TOTAL TODO INCLUIDO","","","","","","",xlF(`SUMIF(D${v0}:D${v1},"Todo incluido",H${v0}:H${v1})`,null)]);
+    totalRow(wsV,f+1,colsV,["TOTAL VENTA","","","","","","",xlF(`SUMIF(D${v0}:D${v1},"Venta",H${v0}:H${v1})`,null)]);
+    totalRow(wsV,f+2,colsV,["TOTAL INVENTARIO","","","","","","",xlF(`H${f}+H${f+1}`,null)]); }
+  // ---------- Alertas ----------
+  const colsAl=[{h:"Fecha",w:12,al:"center"},{h:"Bodega",w:28},{h:"Tipo",w:18},{h:"Detalle",w:70,wrap:true}];
+  const wsA=nueva("Alertas",colsAl,"Calidad de los datos de la semana");
+  f=5; if(!M.alertas.length){ wsA.mergeCells(f,1,f,4); wsA.getCell(f,1).value="Sin alertas en la semana."; }
+  for(const a of M.alertas){ xlFila(wsA,f,colsAl,[a.fecha,a.bodega,a.tipo,a.detalle], /negativo/i.test(a.tipo)?{bg:XL.rojo,color:XL.rojoTxt}:{bg:XL.amarillo,color:XL.amarilloTxt}); f++; }
+  if(M.alertas.length) wsA.autoFilter={from:{row:4,column:1},to:{row:f-1,column:4}};
+  const buf = await wb.xlsx.writeBuffer();
+  let bin=""; const u8=new Uint8Array(buf); for(let k=0;k<u8.length;k+=0x8000) bin+=String.fromCharCode.apply(null,u8.subarray(k,k+0x8000));
+  return btoa(bin);
+}
+async function invEnviarReporteSemanal(prueba){
+  if(MODE!=="graph") return {enviado:false};
+  const hoy=hoyISO(), lunes=invLunesDe(hoy);
+  if(!prueba && hoy===lunes && invHoraMinECActual() < 10*60+30) return {enviado:false};
+  const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
+  applyInvConfig(cfgRemota);
+  const al = INV_CFG.alertas||{};
+  const {ini, fin} = prueba && prueba.ini ? {ini:prueba.ini, fin:sumaDiasYMD(prueba.ini,6)} : invSemanaAnterior();
+  const para = invDestinatarios(al.correo1030), cc = invDestinatarios(al.cc1030);
+  if(!prueba){
+    if(al.activo===false || !para.length || al.ultimoReporteSemanal===ini) return {enviado:false};
+    INV_CFG.alertas = {...al, ultimoReporteSemanal:ini};
+    await invCfgSave();
+  }
+  const M = invModeloSemana(await Store.read("Inventario",{noCache:true}), ini);
+  let adjuntos=[];
+  try{ const b64 = await invExcelSemanal(M);
+    adjuntos=[{"@odata.type":"#microsoft.graph.fileAttachment", name:`Costo_servicio_AB_${ini}_al_${fin}.xlsx`, contentType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBytes:b64}];
+  }catch(e){}
+  await gfetch("/me/sendMail","POST",{message:{
+    subject: (prueba && prueba.asunto ? prueba.asunto+" — " : "") + `Costo del servicio A&B — semana del ${ini} al ${fin}`,
+    body:{contentType:"HTML", content:invEmailSemanal(M)},
+    toRecipients: prueba ? invDestinatarios(prueba.para) : para, ccRecipients: prueba ? invDestinatarios(prueba.cc||"") : cc, attachments:adjuntos
+  }, saveToSentItems:true});
+  return {enviado:true};
+}
 /* ===== Plazo de las 10am para cerrar/aprobar el inventario del día anterior =====
    Cocina/Bar tiene hasta las 10:00 (hora Ecuador) del día siguiente para
    guardar Y cerrar el inventario de un día; el Jefe de Operaciones (hoy
@@ -2733,7 +3122,8 @@ function InventarioCorreos({user,toast}){
     {campo("correo10","estrategia@playaparaiso.com.ec","10:00 — Resumen de gestión de inventarios (para)","Cierres, responsables, PAX, aprobación y costo de cada bodega del día anterior. Separa varios correos con coma.")}
     {campo("correo1030","","10:30 — Costo de inventarios y desviaciones (para)","Tabla de costos por bodega y consumos negativos del día anterior, con el Excel del detalle de inventarios y sus costos adjunto.")}
     {campo("cc1030","","10:30 — Con copia a","")}
-    <div className="hint" style={{marginTop:8}}>Se envían desde la cuenta de Microsoft de la primera persona que tenga la app abierta después de esa hora (se revisa cada 5 minutos), una sola vez por día.{al.ultimoReporteDiario?` Último resumen 10:00: ${al.ultimoReporteDiario}.`:""}{al.ultimoReporteCostos?` Último costo 10:30: ${al.ultimoReporteCostos}.`:""}</div>
+    <div className="hint" style={{marginTop:8}}>Se envían desde la cuenta de Microsoft de la primera persona que tenga la app abierta después de esa hora (se revisa cada 5 minutos), una sola vez por día.{al.ultimoReporteDiario?` Último resumen 10:00: ${al.ultimoReporteDiario}.`:""}{al.ultimoReporteCostos?` Último costo 10:30: ${al.ultimoReporteCostos}.`:""} El <b>reporte semanal</b> (lunes a domingo anterior, con Excel) sale los lunes desde las 10:30 a los mismos destinatarios de las 10:30.{al.ultimoReporteSemanal?` Último semanal: semana del ${al.ultimoReporteSemanal}.`:""}</div>
+    <button className="btn ghost" style={{marginTop:8}} onClick={async()=>{ const s0=invSemanaAnterior(); try{ await invEnviarReporteSemanal({asunto:"Prueba", para:user.correo||"estrategia@playaparaiso.com.ec", ini:s0.ini}); toast("Prueba del reporte semanal enviada."); }catch(e){ toast("No se pudo enviar: "+(e.message||e)); } }}>Enviarme una prueba del reporte semanal</button>
   </div>;
 }
 /* ===== Corrección puntual: traslados del 25/09/2026 =====
@@ -3009,8 +3399,15 @@ function InventarioCostos({user,toast}){
             <td style={{...td,fontWeight:800}}>{invDinero(tot)}</td><td style={{...td,fontWeight:800}}>{totProm===null?"":invDinero(totProm)}</td></tr></tfoot>
         </table></div>;
       return <div>
-        {tabla("Hotel — costo por persona atendida", RC.hotel, "PAX", "Costo por PAX", RC.totHotel.gasto, RC.totHotel.cpp)}
-        <div className="hint" style={{marginTop:-8,marginBottom:12}}>Costo por PAX real del día = suma de los costos por PAX de cada bodega (comida + snacks + bebidas).</div>
+        {tabla("Hotel — costo por persona atendida", RC.hotel, "PAX", "Costo por PAX", RC.totHotel.gasto, null)}
+        {(()=>{ const CH=invCostoHuespedDia(datos); const pc=Math.round(CH.pct*100)+"%";
+          const fl=(etq,g,c,st)=><tr style={st}><td style={{...td,textAlign:"left",...(st&&st.fontWeight?{fontWeight:800}:{})}}>{etq}</td><td style={{...td,fontWeight:st&&st.fontWeight?800:400}}>{invDinero(g)}</td><td style={{...td,fontWeight:st&&st.fontWeight?800:700}}>{c===null?"—":invDinero(c)}</td></tr>;
+          return <div style={{overflowX:"auto",marginBottom:14,maxWidth:560}}>
+            <div style={{fontWeight:800,color:"var(--ocean-d)",margin:"6px 0 4px"}}>Costo por huésped del día ({CH.hu||0} huéspedes)</div>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr><th style={{...th,textAlign:"left"}}></th><th style={th}>Gasto del día</th><th style={th}>Por huésped</th></tr></thead>
+              <tbody>{fl("Subtotal A&B (inventario)",CH.gasto,CH.cph,{background:"#f5f3ee"})}{fl(`Otros ítems (+${pc})`,CH.gastoOtros,CH.otros,{background:"#fcebd9",color:"#8a4b12"})}{fl("TOTAL",CH.gastoTotal,CH.total,{background:"#e6f2f3",fontWeight:800})}</tbody></table>
+            <div className="hint" style={{marginTop:4}}>Huéspedes del día = el servicio con más personas registradas en Cocina Central. Otros ítems = {pc} por costos del todo incluido que no pasan por el inventario.{CH.neg?<b style={{color:INV_COLOR_NEG.fg}}> Hay bodegas con gasto negativo: el costo del día no es confiable hasta corregirlas.</b>:null}</div></div>; })()}
         {tabla("La Almeja Playera — ticket promedio (aparte)", RC.rest, "Tickets", "Ticket promedio", RC.totRest.gasto, null)}
         <div style={{fontWeight:800,color:"#5b3a8c",margin:"6px 0 4px"}}>Productos de venta (facturado) — aparte, no son todo incluido</div>
         {RC.venta.length ? <div style={{marginBottom:12}}>{RC.venta.map(v=><div key={v.b.codigo} style={{display:"flex",justifyContent:"space-between",maxWidth:420,fontSize:13,padding:"3px 0",borderBottom:"1px solid var(--line)"}}><span>{v.b.nombre}</span><b style={{color:"#5b3a8c"}}>{invDinero(v.venta)}</b></div>)}
@@ -3358,7 +3755,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-10-29a";
+const APP_BUILD = "2026-11-05b";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
