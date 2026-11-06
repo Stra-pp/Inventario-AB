@@ -1,0 +1,44 @@
+name: Correos automáticos de inventario
+
+on:
+  schedule:
+    # Hora UTC. Ecuador = UTC-5 → corre a las 10:05, 10:35, 11:05, 11:35, 12:05 y 12:35.
+    # Cada correo sale una sola vez al día (o a la semana): las demás corridas no hacen nada.
+    - cron: "5,35 15-17 * * *"
+  workflow_dispatch:
+    inputs:
+      prueba_para:
+        description: "Enviar los correos como PRUEBA solo a este correo (vacío = envío normal)"
+        required: false
+        default: ""
+
+concurrency:
+  group: correos-inventario
+  cancel-in-progress: false
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: America/Guayaquil
+    defaults:
+      run:
+        working-directory: automatico
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Instalar dependencias
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Enviar correos
+        env:
+          GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+          GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+          GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+          GRAPH_SENDER: ${{ secrets.GRAPH_SENDER }}
+          PRUEBA_PARA: ${{ github.event.inputs.prueba_para }}
+        run: node enviar.js
