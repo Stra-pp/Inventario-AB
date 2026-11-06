@@ -1,0 +1,11 @@
+{
+  "name": "inventario-ab-automatico",
+  "private": true,
+  "description": "Envío automático de los correos de Inventario A&B (GitHub Actions).",
+  "dependencies": {
+    "@babel/core": "7.24.7",
+    "@babel/plugin-transform-react-jsx": "7.24.7",
+    "exceljs": "4.4.0",
+    "playwright": "1.47.2"
+  }
+}
