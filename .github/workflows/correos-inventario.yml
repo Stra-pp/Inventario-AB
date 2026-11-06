@@ -2,9 +2,11 @@ name: Correos automáticos de inventario
 
 on:
   schedule:
-    # Hora UTC. Ecuador = UTC-5 → corre a las 10:05, 10:35, 11:05, 11:35, 12:05 y 12:35.
-    # Cada correo sale una sola vez al día (o a la semana): las demás corridas no hacen nada.
-    - cron: "5,35 15-17 * * *"
+    # Hora UTC. Ecuador = UTC-5 → corre cada 20 minutos de 10:00 a 18:40.
+    # GitHub puede retrasar u omitir corridas programadas: por eso son varias.
+    # Cada correo sale una sola vez: las demás corridas no hacen nada. Las
+    # corridas de la tarde envían los días que Antonio apruebe más tarde.
+    - cron: "2,22,42 15-23 * * *"
   workflow_dispatch:
     inputs:
       prueba_para:
