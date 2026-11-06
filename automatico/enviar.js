@@ -63,6 +63,8 @@ function cargarApp(extra) {
     gfetch = async function(p, ...a){ if(p==="/me/sendMail") p="/users/"+encodeURIComponent(__SENDER)+"/sendMail"; return __gfOrig(p, ...a); };`, ctx);
   const prueba = PRUEBA ? { asunto: "Prueba", para: PRUEBA } : undefined;
   let fallos = 0;
+  // Avisar a la app que el servidor está activo (así la app no envía desde la cuenta de otros usuarios).
+  if (!prueba) { try { await vm.runInContext("invMarcarServidor()", ctx); } catch (e) { console.error("No se pudo marcar el servidor: " + (e && e.message || e)); } }
   for (const [nombre, fn] of [["Correo de las 10:00 (cierre del día)", "invEnviarReporteDiario"], ["Correo de las 10:30 (costos)", "invEnviarReporteCostos"], ["Reporte semanal (lunes 10:30)", "invEnviarReporteSemanal"]]) {
     try { ctx.__p = prueba; const r = await vm.runInContext(`${fn}(__p)`, ctx); const dias = r && r.dias && r.dias.length ? ` (${r.dias.join(", ")})` : "";
       const espera = r && r.retenido ? ` · en espera de aprobación el ${r.dia}: ` + r.faltan.map(x => x.bodega + " " + x.estado).join("; ") : r && r.esperando ? ` · semana del ${r.semana} esperando que se publiquen todos sus días` : "";
