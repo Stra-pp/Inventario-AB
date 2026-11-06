@@ -1246,7 +1246,18 @@ function invEmailReporteDiario(fecha, filas){
 function invListaCorreos(txt){ return String(txt||"").split(/[;,\s]+/).map(x=>x.trim()).filter(x=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)); }
 function invDestinatarios(lista){ return invListaCorreos(lista).map(a=>({emailAddress:{address:a}})); }
 function invHoraMinECActual(){ try{ const t=new Date().toLocaleString("en-US",{timeZone:TZ_EC,hour:"2-digit",minute:"2-digit",hour12:false}); const [h,m]=t.split(":").map(Number); return (h%24)*60+m; }catch(e){ const d=new Date(Date.now()-5*3600000); return d.getUTCHours()*60+d.getUTCMinutes(); } }
+/* Desde el 06/11/2026 los correos los envía el servidor (GitHub Actions,
+   automatico/enviar.js) desde un solo buzón. El servidor deja su "visto" en la
+   configuración una vez al día; mientras haya corrido hoy o ayer, la app NO
+   envía nada (así no salen correos desde la cuenta de quien tenga la app
+   abierta). Si el servidor deja de correr más de un día, la app vuelve a
+   enviar como respaldo. */
+async function invMarcarServidor(){
+  const c=await invCfgRead(); if(!c) return; applyInvConfig(c);
+  const al=INV_CFG.alertas||{}, h=hoyISO(); if(al.servidorVisto===h) return;
+  INV_CFG.alertas={...al, servidorVisto:h}; await invCfgSave(); }
 async function invEnviarCorreosAutomaticos(){
+  try{ const c=await invCfgRead(); if(c){ applyInvConfig(c); const v=(INV_CFG.alertas||{}).servidorVisto; if(v && v>=sumaDiasYMD(hoyISO(),-1)) return; } }catch(e){ return; }
   try{ await invEnviarReporteDiario(); }catch(e){}
   try{ await invEnviarReporteCostos(); }catch(e){}
   try{ await invEnviarReporteSemanal(); }catch(e){}
@@ -3787,7 +3798,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-11-05c";
+const APP_BUILD = "2026-11-06a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
