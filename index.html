@@ -1303,7 +1303,10 @@ async function invMarcarServidor(){
   const al=INV_CFG.alertas||{}, h=hoyISO(); if(al.servidorVisto===h) return;
   INV_CFG.alertas={...al, servidorVisto:h}; await invCfgSave(); }
 async function invEnviarCorreosAutomaticos(){
-  try{ const c=await invCfgRead(); if(c){ applyInvConfig(c); const v=(INV_CFG.alertas||{}).servidorVisto; if(v && v>=sumaDiasYMD(hoyISO(),-1)) return; } }catch(e){ return; }
+  /* GitHub a veces omite o retrasa horas las corridas programadas: si el
+     servidor no ha corrido HOY y ya son las 11:00, la app envía como respaldo. */
+  try{ const c=await invCfgRead(); if(c){ applyInvConfig(c); const v=(INV_CFG.alertas||{}).servidorVisto, h=hoyISO();
+    if(v===h || (v===sumaDiasYMD(h,-1) && invHoraMinECActual() < 11*60)) return; } }catch(e){ return; }
   try{ await invEnviarReporteDiario(); }catch(e){}
   try{ await invEnviarReporteCostos(); }catch(e){}
   try{ await invEnviarReporteSemanal(); }catch(e){}
@@ -3903,7 +3906,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-11-06b";
+const APP_BUILD = "2026-11-07a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
