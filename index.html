@@ -3527,17 +3527,34 @@ async function invLeerPdfCostos(file){
     sc.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; sc.onload=ok; sc.onerror=()=>ko(new Error("No se pudo cargar el lector de PDF")); document.head.appendChild(sc); });
     window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }
   const pdf = await window.pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
-  const mapa={}, unidades={}; let fechaImp="";
+  const mapa={}, unidades={}, todos={}; let fechaImp="";
   for(let n=1;n<=pdf.numPages;n++){
     const tc = await (await pdf.getPage(n)).getTextContent();
     const filas = {};
     for(const it of tc.items){ const y=Math.round(it.transform[5]/2)*2; (filas[y]=filas[y]||[]).push({x:it.transform[4], t:it.str}); }
     for(const y of Object.keys(filas)){ const linea = filas[y].sort((a,b)=>a.x-b.x).map(o=>o.t).join(" ").replace(/\s+/g," ").trim();
-      const m = linea.match(/^(\d{5,9}) .*? ([\d]+\.\d+) ([\d]+\.\d+)$/); if(m) mapa[m[1]] = Math.round(parseFloat(m[3])*10000)/10000;
-      const mu = linea.match(/^(\d{5,9}) .* (UNIDADES|UNIDAD|KILOS|LITROS|PAQUETES|PAQUETE|CAJA|GALON|SACO|PARES|METROS|[A-Z]+) [\d]+\.\d+ [\d]+\.\d+$/); if(mu) unidades[mu[1]] = mu[2];
+      const m = linea.match(/^(\d{5,9}) .*? ([\d]+\.\d+) ([\d]+\.\d+)$/);
+      const mu = linea.match(/^(\d{5,9}) .* (UNIDADES|UNIDAD|KILOS|LITROS|PAQUETES|PAQUETE|CAJA|GALON|SACO|PARES|METROS|[A-Z]+) [\d]+\.\d+ [\d]+\.\d+$/);
+      if(m){ const costo=Math.round(parseFloat(m[3])*10000)/10000, uni=mu?mu[2]:"";
+        (todos[m[1]]=todos[m[1]]||[]).push({uni, costo});
+        if(mapa[m[1]]==null){ mapa[m[1]]=costo; if(uni) unidades[m[1]]=uni; } }
       const f = linea.match(/(\d{4})\/(\d{2})\/(\d{2})/); if(!fechaImp && f) fechaImp=`${f[1]}-${f[2]}-${f[3]}`; }
   }
-  return {mapa, unidades, fecha: fechaImp || hoyISO()};
+  /* Zeus a veces lista el MISMO código dos veces con distinta presentación
+     (p. ej. Stevia en CAJA y en KILOS, con costos distintos). Se toma la
+     presentación con la que ese producto se cuenta en la app (unidad del
+     catálogo de la bodega → unidad conocida de Zeus → listado base); si
+     ninguna coincide, queda la primera y se avisa. */
+  const nu=u=>({UNIDADES:"UNIDAD",PAQUETES:"PAQUETE",LITRO:"LITROS",KILO:"KILOS"})[String(u||"").toUpperCase()]||String(u||"").toUpperCase();
+  const uniApp={}; for(const b of (INV_CFG.bodegas||[])) for(const p of (b.productos||[])){ const c=String(p.codigo||"").trim(); if(c && p.unidad && !uniApp[c]) uniApp[c]=p.unidad; }
+  const zuPrev=(INV_CFG.costos&&INV_CFG.costos.zeusUnidades)||{};
+  const dobles=[], cambioUnidad=[];
+  for(const c in todos){ const esperada = uniApp[c] || INV_UNIDADES_BASE[c] || INV_UNIDADES_EXTRA[c] || zuPrev[c] || "";
+    if(todos[c].length>1){ const hit=esperada ? todos[c].find(x=>nu(x.uni)===nu(esperada)) : null;
+      if(hit){ mapa[c]=hit.costo; unidades[c]=hit.uni; }
+      dobles.push({codigo:c, opciones:todos[c], esperada, elegida: hit?hit.uni:todos[c][0].uni, ok:!!hit}); }
+    else if(esperada && todos[c][0].uni && nu(todos[c][0].uni)!==nu(esperada)) cambioUnidad.push({codigo:c, antes:esperada, ahora:todos[c][0].uni, costo:todos[c][0].costo}); }
+  return {mapa, unidades, fecha: fechaImp || hoyISO(), dobles, cambioUnidad};
 }
 /* Vuelve a calcular las diferencias (cambios) de todas las semanas a partir
    de sus listados completos, para que insertar o quitar una semana no altere
@@ -3566,9 +3583,9 @@ function InventarioConfigCostos({user,toast}){
   function setManual(k, v){ const man={...(costos.manual||{})}; if(v===""||v==null) delete man[k]; else man[k]=+v; guardar({...costos, manual:man}); }
   async function leer(e){ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
     setSubiendo(true);
-    try{ const {mapa, unidades, fecha} = await invLeerPdfCostos(f); const n=Object.keys(mapa).length;
+    try{ const {mapa, unidades, fecha, dobles, cambioUnidad} = await invLeerPdfCostos(f); const n=Object.keys(mapa).length;
       if(n<50){ toast(`El PDF no parece el listado de costos de Zeus (solo se leyeron ${n} productos). No se cambió nada.`); return; }
-      setPend({mapa, unidades, fecha, n, desde:lunesHoy});
+      setPend({mapa, unidades, fecha, n, desde:lunesHoy, dobles, cambioUnidad});
     }catch(err){ toast("No se pudo leer el PDF: "+(err.message||err)); }
     finally{ setSubiendo(false); } }
   async function confirmar(){ const {mapa, unidades, fecha, n, desde}=pend;
@@ -3602,6 +3619,13 @@ function InventarioConfigCostos({user,toast}){
       <div style={{fontWeight:700,marginBottom:6}}>Listado de Zeus del {pend.fecha}: {pend.n} productos leídos.</div>
       <Field label="¿Para qué semana rige? (lunes)"><input className="inp" type="date" value={pend.desde} onChange={e=>e.target.value&&setPend({...pend, desde:invLunesDe(e.target.value)})}/></Field>
       <div className="hint" style={{margin:"4px 0 8px"}}>Rige del {pend.desde} al {fin(pend.desde)}. Si eliges otro día, se ajusta al lunes de esa semana.</div>
+      {(()=>{ const enUso=new Set(); for(const b of (INV_CFG.bodegas||[])) for(const p of (b.productos||[])) if(p.codigo) enUso.add(String(p.codigo).trim());
+        const d=(pend.dobles||[]).filter(x=>enUso.has(x.codigo)), cu=(pend.cambioUnidad||[]).filter(x=>enUso.has(x.codigo));
+        if(!d.length && !cu.length) return <div className="hint" style={{color:"#2f6b4f",marginBottom:8}}>✔ Unidades revisadas: los productos de las bodegas tienen la misma unidad que antes.</div>;
+        return <div style={{background:"#fff3d6",color:"#8a6512",borderRadius:8,padding:"8px 10px",marginBottom:8,fontSize:12.5}}>
+          {d.map(x=><div key={"d"+x.codigo}><b>{nombreDe(x.codigo)}</b> (#{x.codigo}) aparece {x.opciones.length} veces en Zeus: {x.opciones.map(o=>`${o.uni} ${invDinero(o.costo)}`).join(" · ")}. {x.ok?<>Se toma <b>{x.elegida}</b>, la unidad con que se cuenta.</>:<>No coincide con la unidad con que se cuenta ({x.esperada||"sin unidad"}): <b>revisar</b>.</>}</div>)}
+          {cu.map(x=><div key={"u"+x.codigo}>⚠️ <b>{nombreDe(x.codigo)}</b> (#{x.codigo}) cambió de unidad en Zeus: antes {x.antes}, ahora {x.ahora} ({invDinero(x.costo)}). Revisar si se sigue contando igual.</div>)}
+        </div>; })()}
       <div style={{display:"flex",gap:8}}><button className="btn" onClick={confirmar}>Guardar costos de esa semana</button><button className="btn ghost" onClick={()=>setPend(null)}>Cancelar</button></div>
     </div>}
     <div style={{fontWeight:800,color:"var(--ocean-d)",margin:"8px 0 4px"}}>Histórico de costos por semana</div>
@@ -3906,7 +3930,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-11-07a";
+const APP_BUILD = "2026-11-09a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
