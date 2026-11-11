@@ -1302,15 +1302,29 @@ async function invMarcarServidor(){
   const c=await invCfgRead(); if(!c) return; applyInvConfig(c);
   const al=INV_CFG.alertas||{}, h=hoyISO(); if(al.servidorVisto===h) return;
   INV_CFG.alertas={...al, servidorVisto:h}; await invCfgSave(); }
+/* ===== Envío de correos: un solo remitente (11/11/2026) =====
+   GitHub Actions resultó poco confiable como reloj (corre 1-2 veces al día,
+   horas tarde). Ahora el disparador principal es una tarea programada de
+   Claude que a las 10:06, 11:06, 13:06 y 17:06 abre la app en el Chrome de
+   Estrategia y llama a invEnvioProgramado(); GitHub queda como respaldo.
+   Todas las funciones de envío son idempotentes (cada correo queda marcado en
+   la configuración compartida y la marca se reserva antes de enviar), así que
+   correr varias veces no duplica nada.
+   La app SOLO envía automáticamente si la sesión abierta es la del remitente
+   oficial (alertas.remitente, por defecto estrategia@): así nunca salen correos
+   desde la cuenta de otra persona que abra la app (Antonio, powerbi, etc.). */
+function invRemitente(){ return String(((INV_CFG.alertas||{}).remitente)||"estrategia@playaparaiso.com.ec").trim().toLowerCase(); }
+function invSoyRemitente(){ return String(graphUser||"").trim().toLowerCase()===invRemitente(); }
+async function invEnvioProgramado(){
+  const out={usuario:graphUser||"", hora:new Date().toISOString(), resultados:{}};
+  for(const [k,fn] of [["diario10",invEnviarReporteDiario],["costosGerencia",invEnviarReporteCostos],["semanal",invEnviarReporteSemanal],["recordatorioCostos",invRecordatorioCostos]]){
+    try{ out.resultados[k]=await fn(); }catch(e){ out.resultados[k]={error:(e&&e.message)||String(e)}; } }
+  return out; }
 async function invEnviarCorreosAutomaticos(){
-  /* GitHub a veces omite o retrasa horas las corridas programadas: si el
-     servidor no ha corrido HOY y ya son las 11:00, la app envía como respaldo. */
-  try{ const c=await invCfgRead(); if(c){ applyInvConfig(c); const v=(INV_CFG.alertas||{}).servidorVisto, h=hoyISO();
-    if(v===h || (v===sumaDiasYMD(h,-1) && invHoraMinECActual() < 11*60)) return; } }catch(e){ return; }
-  try{ await invEnviarReporteDiario(); }catch(e){}
-  try{ await invEnviarReporteCostos(); }catch(e){}
-  try{ await invEnviarReporteSemanal(); }catch(e){}
-  try{ await invRecordatorioCostos(); }catch(e){}
+  if(MODE!=="graph") return;
+  try{ const c=await invCfgRead(); if(c) applyInvConfig(c); }catch(e){ return; }
+  if(!invSoyRemitente()) return;   // otra cuenta: no envía
+  await invEnvioProgramado();
 }
 async function invEnviarReporteDiario(prueba){
   if(MODE!=="graph" || (!prueba && !invLimite10amPasado())) return {enviado:false};
@@ -1589,17 +1603,35 @@ function invEmailCostos(fecha, datos){
 function invFaltanAprobar(datos){
   return (datos||[]).filter(({r})=>r && !(r.cerrado && r.aprobado===true))
     .map(({b,r})=>({bodega:b.nombre, estado: !r.cerrado ? "sin cerrar" : "cerrado, sin aprobar"})); }
-/* ===== Correo de costos a Gerencia General (desde las 10:30) =====
-   Gerencia General solo recibe información PUBLICADA (05/11/2026): el costo de
-   un día sale cuando TODAS sus bodegas registradas están cerradas y aprobadas
-   por el Jefe de Operaciones (Antonio Puga). Antonio puede aprobar días
-   después y, al aprobar un día, se ajustan los días siguientes; por eso los
-   días se envían EN ORDEN: si un día falta aprobar, se espera y no se envían
-   los posteriores (sus cifras todavía pueden cambiar). Cuando se aprueba, en
-   la siguiente corrida salen ese día y todos los que ya estén aprobados
-   detrás de él, cada uno en su propio correo.
-   Mientras un día espera, se avisa UNA sola vez a las copias (Estrategia /
-   Jefatura A&B) qué bodegas faltan. ultimoReporteCostos = último día enviado. */
+/* ===== Correo de costos a Gerencia General — reglas del 11/11/2026 =====
+   1) 10:00: sale el correo de carga de información (resumen de gestión).
+      11:00: se evalúa UNA sola vez el día anterior para Gerencia General.
+   2/3) Un día se publica si TODAS las bodegas que se abrieron ese día están
+      cerradas y aprobadas por el Jefe de Operaciones (Antonio). Las bodegas
+      que nunca se abrieron no cuentan ni bloquean.
+   4) La aprobación cuenta solo si se hizo hasta las 11:00 de hoy (aprobadoEn).
+      Si a las 11:00 falta alguna, ese día NO se envía (ni más tarde).
+   5) Si hay inventarios de días anteriores todavía sin cerrar o sin aprobar
+      (desde alertas.reglasDesde, por defecto 01/11/2026), NO se envía aunque
+      el día anterior esté aprobado: esos días pendientes todavía pueden mover
+      las cifras.
+   6) Si hoy, hasta las 11:00, se aprueba todo lo pendiente, se envía SOLO el
+      día anterior; los días atrasados no se envían.
+   El resultado queda marcado en alertas.costosEvaluado (= día evaluado), así
+   aunque el motor corra varias veces o tarde, se decide una sola vez y con el
+   corte de las 11:00. Cuando no se envía, se avisa una vez a las copias. */
+function invCorte11(hoy){ return new Date(hoy+"T16:00:00Z").toISOString(); } // 11:00 Ecuador = 16:00 UTC
+function invAprobadoAlCorte(r, corte){ return !!(r && r.cerrado && r.aprobado===true && (!r.aprobadoEn || r.aprobadoEn <= corte)); }
+function invEvaluarPublicacion(regs, dia, corte){
+  regs = invSinDuplicados(regs||[]);
+  const desde = ((INV_CFG.alertas||{}).reglasDesde) || "2026-11-01";
+  const nom = c => ((INV_CFG.bodegas||[]).find(b=>b.codigo===c)||{}).nombre || c;
+  const est = r => !r.cerrado ? "sin cerrar" : r.aprobado!==true ? "cerrado, sin aprobar" : "aprobado después de las 11:00";
+  const delDia = regs.filter(r=>r.fecha===dia && !invAprobadoAlCorte(r,corte)).map(r=>({fecha:dia, bodega:nom(r.bodega), estado:est(r)}));
+  const previos = regs.filter(r=>r.fecha>=desde && r.fecha<dia && !invAprobadoAlCorte(r,corte)).map(r=>({fecha:r.fecha, bodega:nom(r.bodega), estado:est(r)}))
+    .sort((a,b)=>a.fecha<b.fecha?-1:1);
+  const abiertas = regs.filter(r=>r.fecha===dia).length;
+  return {ok: !delDia.length && !previos.length && abiertas>0, delDia, previos, abiertas}; }
 async function invEnviarCostosDia(dia, datos, prueba, para, cc){
   let adjuntos=[];
   try{ const b64 = await invExcelDia(dia, datos);
@@ -1611,42 +1643,35 @@ async function invEnviarCostosDia(dia, datos, prueba, para, cc){
     toRecipients: prueba ? invDestinatarios(prueba.para) : para, ccRecipients: prueba ? invDestinatarios(prueba.cc||"") : cc, attachments:adjuntos
   }, saveToSentItems:true});
 }
-async function invAvisoPendiente(dia, faltan, para){
+async function invAvisoNoPublicado(dia, ev, para){
   if(!para.length) return;
+  const fila=x=>`<tr><td style="padding:4px 8px;border-bottom:1px solid #e5e0d5">${x.fecha}</td><td style="padding:4px 8px;border-bottom:1px solid #e5e0d5"><b>${x.bodega}</b></td><td style="padding:4px 8px;border-bottom:1px solid #e5e0d5">${x.estado}</td></tr>`;
+  const motivo = !ev.abiertas ? `<p>Ninguna bodega abrió inventario el ${dia}.</p>` : "";
   await gfetch("/me/sendMail","POST",{message:{
-    subject:`Inventario A&B — costo del ${dia} en espera de aprobación (aún no se envía a Gerencia)`,
-    body:{contentType:"HTML", content:`<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a"><p>El costo del <b>${dia}</b> todavía <b>no se envía a Gerencia General</b> porque faltan bodegas por aprobar:</p><ul>${faltan.map(x=>`<li><b>${x.bodega}</b>: ${x.estado}</li>`).join("")}</ul><p>Se enviará solo en cuanto el Jefe de Operaciones apruebe todas, junto con los días siguientes que ya estén aprobados (los días se envían en orden, porque aprobar un día ajusta los siguientes).</p><p style="color:#5c6b6e;font-size:12px">Este aviso se envía una sola vez por día. Aviso automático de Inventario A&amp;B.</p></div>`},
+    subject:`Inventario A&B — NO se envió a Gerencia el costo del ${dia}`,
+    body:{contentType:"HTML", content:`<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a"><p>El costo del <b>${dia}</b> <b>no se envió a Gerencia General</b>. A las 11:00 de hoy:</p>${motivo}
+      ${ev.delDia.length?`<p><b>Bodegas del ${dia} sin aprobar:</b></p><table style="border-collapse:collapse">${ev.delDia.map(fila).join("")}</table>`:""}
+      ${ev.previos.length?`<p><b>Inventarios de días anteriores pendientes</b> (mientras existan no se publica, porque al aprobarlos se mueven las cifras):</p><table style="border-collapse:collapse">${ev.previos.map(fila).join("")}</table>`:""}
+      <p style="color:#5c6b6e;font-size:12px">Reglas: se publica el día anterior solo si todas las bodegas que se abrieron están aprobadas por el Jefe de Operaciones hasta las 11:00 y no hay pendientes de días anteriores. Los días que no se publican no se envían después. Aviso automático de Inventario A&amp;B.</p></div>`},
     toRecipients: para }, saveToSentItems:true});
 }
 async function invEnviarReporteCostos(prueba){
   if(MODE!=="graph") return {enviado:false};
   const hoy=hoyISO(), ayer=sumaDiasYMD(hoy,-1);
-  if(!prueba && invHoraMinECActual() < 10*60+30) return {enviado:false};
+  if(!prueba && invHoraMinECActual() < 11*60) return {enviado:false};
   const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
   applyInvConfig(cfgRemota);
-  const al0 = INV_CFG.alertas||{};
-  const para = invDestinatarios(al0.correo1030), cc = invDestinatarios(al0.cc1030);
+  const al = INV_CFG.alertas||{};
+  const para = invDestinatarios(al.correo1030), cc = invDestinatarios(al.cc1030);
+  if(!prueba && (al.activo===false || !para.length || al.costosEvaluado===ayer)) return {enviado:false};
   const regs = await Store.read("Inventario",{noCache:true});
-  if(prueba){ const datos=invDatosDia(regs, ayer), faltan=invFaltanAprobar(datos);
-    if(faltan.length){ await invAvisoPendiente(ayer, faltan, invDestinatarios(prueba.para)); return {enviado:false, retenido:true, faltan, dia:ayer}; }
-    await invEnviarCostosDia(ayer, datos, prueba); return {enviado:true, dias:[ayer]}; }
-  if(al0.activo===false || !para.length) return {enviado:false};
-  // Primer día pendiente: el siguiente al último enviado (máximo 14 días atrás).
-  let dia = al0.ultimoReporteCostos ? sumaDiasYMD(al0.ultimoReporteCostos,1) : ayer;
-  if(dia < sumaDiasYMD(ayer,-13)) dia = sumaDiasYMD(ayer,-13);
-  const enviados=[];
-  for(; dia<=ayer; dia=sumaDiasYMD(dia,1)){
-    const datos = invDatosDia(regs, dia), faltan = invFaltanAprobar(datos);
-    const al = INV_CFG.alertas||{};
-    if(faltan.length){
-      if(al.avisoPendienteCostos!==dia){ INV_CFG.alertas={...al, avisoPendienteCostos:dia}; await invCfgSave(); await invAvisoPendiente(dia, faltan, cc); }
-      return {enviado:enviados.length>0, dias:enviados, retenido:true, faltan, dia};
-    }
-    // reservar el día (si otro equipo se adelantó, invCfgSave falla y aquí se detiene) y enviar
-    INV_CFG.alertas = {...al, ultimoReporteCostos:dia}; await invCfgSave();
-    await invEnviarCostosDia(dia, datos, null, para, cc); enviados.push(dia);
-  }
-  return {enviado:enviados.length>0, dias:enviados};
+  const ev = invEvaluarPublicacion(regs, ayer, invCorte11(hoy));
+  if(!prueba){ // decidir una sola vez (si otro equipo se adelantó, invCfgSave falla y aquí se detiene)
+    INV_CFG.alertas = {...al, costosEvaluado:ayer, ...(ev.ok?{ultimoReporteCostos:ayer}:{})}; await invCfgSave(); }
+  if(!ev.ok){ await invAvisoNoPublicado(ayer, ev, prueba ? invDestinatarios(prueba.para) : cc);
+    return {enviado:false, retenido:true, dia:ayer, faltan:[...ev.delDia, ...ev.previos]}; }
+  await invEnviarCostosDia(ayer, invDatosDia(regs, ayer), prueba||null, para, cc);
+  return {enviado:true, dias:[ayer]};
 }
 
 /* ===== Reporte SEMANAL: costo real del servicio (lunes 10:30) =====
@@ -1980,14 +2005,13 @@ async function invExcelSemanal(M){
 async function invEnviarReporteSemanal(prueba){
   if(MODE!=="graph") return {enviado:false};
   const hoy=hoyISO(), lunes=invLunesDe(hoy);
-  if(!prueba && hoy===lunes && invHoraMinECActual() < 10*60+30) return {enviado:false};
+  if(!prueba && hoy===lunes && invHoraMinECActual() < 11*60) return {enviado:false};
   const cfgRemota = await invCfgRead(); if(!cfgRemota) return {enviado:false};
   applyInvConfig(cfgRemota);
   const al = INV_CFG.alertas||{};
   /* Semana a enviar: la siguiente a la última enviada (o la anterior a hoy).
-     Solo sale cuando TODOS sus días ya se publicaron a Gerencia (aprobados por
-     el Jefe de Operaciones, ver invEnviarReporteCostos); si Antonio aprueba
-     tarde, el semanal sale en cuanto se publique el domingo. */
+     Sale el lunes desde las 11:00. Para el costo solo usa los días aprobados
+     (ver invDiaValido); los días sin aprobar aparecen como "no se usa". */
   const sAnt = invSemanaAnterior();
   let ini = prueba && prueba.ini ? prueba.ini : (al.ultimoReporteSemanal ? sumaDiasYMD(al.ultimoReporteSemanal,7) : sAnt.ini);
   if(!prueba && ini < sumaDiasYMD(sAnt.ini,-21)) ini = sumaDiasYMD(sAnt.ini,-21);
@@ -1996,7 +2020,7 @@ async function invEnviarReporteSemanal(prueba){
   if(!prueba){
     if(fin >= hoy) return {enviado:false};
     if(al.activo===false || !para.length || al.ultimoReporteSemanal===ini) return {enviado:false};
-    if(!al.ultimoReporteCostos || al.ultimoReporteCostos < fin) return {enviado:false, esperando:true, semana:ini};
+
     INV_CFG.alertas = {...al, ultimoReporteSemanal:ini};
     await invCfgSave();
   }
@@ -3930,7 +3954,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-11-09a";
+const APP_BUILD = "2026-11-11b";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
