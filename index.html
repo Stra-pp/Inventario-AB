@@ -1372,9 +1372,30 @@ async function invCargarExcelJS(){
     sc.onload=ok; sc.onerror=()=>ko(new Error("No se pudo cargar el generador de Excel")); document.head.appendChild(sc); });
   return window.ExcelJS;
 }
-function invDatosDia(regs, fecha){
+/* Días acumulados (INV_CFG.alertas.diasAcumulados = [{desde, hasta, motivo}]):
+   cuando una bodega central estuvo cerrada y los traslados no se registraron
+   día a día, el consumo de todo el período queda en el último día ("hasta").
+   Ese día cuenta los huéspedes y el PAX de TODO el período; los días
+   anteriores del período quedan en 0 huéspedes (no se usan para el costo),
+   así no se cuentan dos veces. Ej.: 01–06/11/2026 (bodega cerrada). */
+function invAcumuladoDe(f){ const L=((INV_CFG.alertas||{}).diasAcumulados)||[]; return L.find(a=>a&&a.desde&&a.hasta&&a.desde<=f&&f<=a.hasta)||null; }
+function invDatosDiaBase(regs, fecha){
   return (INV_CFG.bodegas||[]).map(b=>{ const r=invSinDuplicados(regs.filter(x=>x.bodega===b.codigo && x.fecha===fecha))[0]; return {b, r, c: r?invCostosDia(r):null}; });
 }
+function invDatosDia(regs, fecha){
+  const out=invDatosDiaBase(regs, fecha); out.fecha=fecha;
+  const a=invAcumuladoDe(fecha);
+  if(a){ out.acumulado=a;
+    if(fecha===a.hasta){ const prev=[]; for(let d=a.desde; d<a.hasta; d=sumaDiasYMD(d,1)) prev.push(invDatosDiaBase(regs,d));
+      out.huespedesExtra=prev.reduce((t,x)=>t+invHuespedesBase(x),0);
+      out.forEach((x,i)=>{ if(x.c){ const extra=prev.reduce((t,dd)=>t+(dd[i]&&dd[i].c?dd[i].c.pax:0),0); x.c={...x.c, pax:x.c.pax+extra, paxDia:x.c.pax}; } }); } }
+  return out;
+}
+/* Texto para reportes cuando el día es parte de un período acumulado. */
+function invNotaAcumulado(datos){ const a=datos&&datos.acumulado; if(!a) return "";
+  const fd=f=>f.slice(8)+"/"+f.slice(5,7);
+  return datos.fecha===a.hasta ? `Este día acumula el consumo y los huéspedes del ${fd(a.desde)} al ${fd(a.hasta)}${a.motivo?" ("+a.motivo+")":""}.`
+                               : `Día incluido en el período ${fd(a.desde)}–${fd(a.hasta)}: su consumo y sus huéspedes se reportan juntos el ${fd(a.hasta)}.`; }
 const XL = {
   azul:"FF1F4E5F", azulClaro:"FFE6F2F3", gris:"FFF5F3EE", borde:"FFD9D4C7",
   rojo:"FFFDE2E1", rojoTxt:"FFB3261E", amarillo:"FFFFF3D6", amarilloTxt:"FF8A6512", verde:"FFE2F0D9", verdeTxt:"FF2F6B4F",
@@ -1579,7 +1600,7 @@ function invEmailCostos(fecha, datos){
   const negHtml = negs.length ? negs.map(x=>`<p style="margin:10px 0 4px"><b>${x.b.nombre}</b></p>`+x.n.map(d=>`<div style="background:#fde2e1;color:#b3261e;border-left:3px solid #b3261e;padding:5px 8px;margin:3px 0;font-size:13px"><b>${d.nombre}</b> (#${d.codigo}): ${d.detalle}</div>`).join("")).join("")
     : `<p style="color:#2f6b4f">Ningún producto quedó con consumo negativo.</p>`;
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#2a2a2a">
-    <p>Costo de los inventarios de A&amp;B del día <b>${fecha}</b>.</p>
+    <p>Costo de los inventarios de A&amp;B del día <b>${fecha}</b>.</p>${invNotaAcumulado(datos)?`<p style="background:#fff3d6;color:#8a6512;border-left:3px solid #e0b252;padding:6px 10px">${invNotaAcumulado(datos)}</p>`:""}
     <h3 style="margin:14px 0 4px;font-size:15px;color:#1f4e5f">Hotel — costo por persona atendida</h3>
     <table style="border-collapse:collapse;width:100%;max-width:900px"><thead><tr><th ${th}>Bodega</th><th ${th}>Estado</th><th ${thr}>PAX</th><th ${thr}>Gasto del día</th><th ${thr}>Costo por PAX</th></tr></thead>
     <tbody>${R.hotel.map(x=>fila(x,"PAX")).join("")}</tbody>
@@ -1699,8 +1720,10 @@ function invFechasEntre(ini,n){ const a=[]; for(let i=0;i<n;i++) a.push(sumaDias
    Se puede cambiar en INV_CFG.alertas.pctOtrosItems (0.35 = 35%). */
 function invPctOtros(){ const a=INV_CFG.alertas||{}; const v=a.pctOtrosItems; return (v!==undefined&&v!==null&&v!==""&&!isNaN(+v)) ? +v : 0.35; }
 function invEstadoReg(r){ return r?(r.cerrado?(r.aprobado===true?"Cerrado y aprobado":"Cerrado, por aprobar"):"Sin cerrar"):"Sin registro"; }
-function invHuespedesDia(datos){ const x=datos.find(y=>y.b.codigo===INV_BODEGA_HUESPEDES); if(!x||!x.r) return 0;
+function invHuespedesBase(datos){ const x=datos.find(y=>y.b.codigo===INV_BODEGA_HUESPEDES); if(!x||!x.r) return 0;
   return Math.max(0,...(x.r.servicios||[]).map(s=>(+s.adultos||0)+(+s.ninos||0))); }
+function invHuespedesDia(datos){ const a=datos&&datos.acumulado; if(a && datos.fecha!==a.hasta) return 0;
+  return invHuespedesBase(datos)+((datos&&datos.huespedesExtra)||0); }
 /* Arma TODOS los datos del reporte como datos simples (sin registros). */
 function invModeloSemana(regs, ini, nSem){
   nSem=nSem||4; regs=invSinDuplicados(regs||[]);
@@ -3469,8 +3492,9 @@ function InventarioCostos({user,toast}){
   const [datos,setDatos]=useState(null); const [abierta,setAbierta]=useState(null); const [ver,setVer]=useState(null);
   async function cargar(f){ setDatos(null);
     try{ await invCfgRefrescar();
-      const all = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>r.fecha===f));
-      setDatos((INV_CFG.bodegas||[]).map(b=>{ const r=all.find(x=>x.bodega===b.codigo); return {b, r, c: r?invCostosDia(r):null}; }));
+      const a=invAcumuladoDe(f);
+      const all = invSinDuplicados((await Store.read("Inventario",{noCache:true})).filter(r=>a ? (r.fecha>=a.desde && r.fecha<=a.hasta) : r.fecha===f));
+      setDatos(invDatosDia(all, f));
     }catch(e){ toast("No se pudo cargar: "+(e.message||e)); setDatos([]); } }
   useEffect(()=>{ cargar(fecha); },[fecha]);
   const tot = (datos||[]).reduce((a,x)=>{ if(x.c){ a.s+=x.c.sinCosto.length; } return a; },{s:0});
@@ -3524,6 +3548,7 @@ function InventarioCostos({user,toast}){
             <table style={{width:"100%",borderCollapse:"collapse"}}>
               <thead><tr><th style={{...th,textAlign:"left"}}></th><th style={th}>Gasto del día</th><th style={th}>Por huésped</th></tr></thead>
               <tbody>{fl("Subtotal A&B (inventario)",CH.gasto,CH.cph,{background:"#f5f3ee"})}{fl(`Otros ítems (+${pc})`,CH.gastoOtros,CH.otros,{background:"#fcebd9",color:"#8a4b12"})}{fl("TOTAL",CH.gastoTotal,CH.total,{background:"#e6f2f3",fontWeight:800})}</tbody></table>
+            {invNotaAcumulado(datos) && <div className="banner" style={{background:"#fff3d6",borderColor:"#e8d9ae",color:"#8a6512",marginTop:6}}>{invNotaAcumulado(datos)}</div>}
             <div className="hint" style={{marginTop:4}}>Huéspedes del día = el servicio con más personas registradas en Cocina Central. Otros ítems = {pc} por costos del todo incluido que no pasan por el inventario.{CH.neg?<b style={{color:INV_COLOR_NEG.fg}}> Hay bodegas con gasto negativo: el costo del día no es confiable hasta corregirlas.</b>:null}</div></div>; })()}
         {tabla("La Almeja Playera — ticket promedio (aparte)", RC.rest, "Tickets", "Ticket promedio", RC.totRest.gasto, null)}
         <div style={{fontWeight:800,color:"#5b3a8c",margin:"6px 0 4px"}}>Productos de venta (facturado) — aparte, no son todo incluido</div>
@@ -3954,7 +3979,7 @@ function TopBar({user,onLogout}){
 /* Versión de la app. Si alguien tiene abierta una versión anterior (la página
    quedó abierta desde antes de publicar un cambio), se le avisa para recargar:
    así todos usan las mismas reglas de cálculo y la misma lista. */
-const APP_BUILD = "2026-11-11b";
+const APP_BUILD = "2026-11-15a";
 function useVersionNueva(){
   const [nueva,setNueva]=useState(false);
   useEffect(()=>{ if(typeof location==="undefined" || location.protocol==="file:") return;
